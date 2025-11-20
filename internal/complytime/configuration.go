@@ -8,10 +8,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"encoding/json"
 
 	"github.com/adrg/xdg"
-	oscalTypes "github.com/defenseunicorns/go-oscal/src/types/oscal-1-1-3"
 	"github.com/hashicorp/go-hclog"
+	"github.com/complytime/gemara2oscal/controls"
+	"github.com/complytime/gemara2oscal/component"
+	oscalTypes "github.com/defenseunicorns/go-oscal/src/types/oscal-1-1-3"
+	"github.com/ossf/gemara/layer1"
+	"github.com/ossf/gemara/layer2"
 	"github.com/oscal-compass/compliance-to-policy-go/v2/framework"
 	"github.com/oscal-compass/compliance-to-policy-go/v2/framework/actions"
 	"github.com/oscal-compass/oscal-sdk-go/models"
@@ -24,6 +29,7 @@ const (
 	ApplicationDir         = "complytime"
 	PluginDir              = "plugins"
 	BundlesDir             = "bundles"
+	GovernanceDir          = "governance"
 	ControlsDir            = "controls"
 	DataRootDir            = "/usr/share"
 	PluginBinaryRootDir    = "/usr/libexec/"
@@ -46,6 +52,8 @@ type ApplicationDirectory struct {
 	pluginManifestDir string
 	// bundleDir contains all the detectable component definitions
 	bundleDir string
+	// governanceDir contains Gemara governance content
+	governanceDir string
 	// controlDir contains all OSCAL control layer models.
 	controlDir string
 }
@@ -86,6 +94,7 @@ func newApplicationDirectory(rootDir string, create bool) (ApplicationDirectory,
 		applicationDir.pluginDir = applicationDir.pluginManifestDir
 	}
 	applicationDir.bundleDir = filepath.Join(applicationDir.appDir, BundlesDir)
+	applicationDir.governanceDir = filepath.Join(applicationDir.appDir, GovernanceDir)
 	applicationDir.controlDir = filepath.Join(applicationDir.appDir, ControlsDir)
 	if create {
 		return applicationDir, applicationDir.create()
@@ -119,6 +128,11 @@ func (a ApplicationDirectory) BundleDir() string {
 	return a.bundleDir
 }
 
+// GovernanceDir returns the governance directory containing Gemara content.
+func (a ApplicationDirectory) GovernanceDir() string {
+	return a.governanceDir
+}
+
 // ControlDir returns the directory containing control layer OSCAL artifacts.
 func (a ApplicationDirectory) ControlDir() string { return a.controlDir }
 
@@ -135,6 +149,7 @@ func (a ApplicationDirectory) Dirs() []string {
 		a.pluginDir,
 		a.pluginManifestDir,
 		a.bundleDir,
+		a.governanceDir,
 		a.controlDir,
 	}
 }
@@ -185,6 +200,181 @@ func FindComponentDefinitions(bundleDir string, validator validation.Validator) 
 	return compDefBundles, nil
 }
 
+// FindAllComponentDefinitions locates all OSCAL component definitions from the bundle directory
+// and all Gemara content in the governance directory.  Gemara content is converted
+// into OSCAL component definitions.
+func FindAllComponentDefinitions(appDir ApplicationDirectory, validator validation.Validator, logger hclog.Logger) ([]oscalTypes.ComponentDefinition, error) {
+	logger.Debug("Scanning bundles directory", "dir", appDir.BundleDir())
+	defs, err := FindComponentDefinitions(appDir.BundleDir(), validator)
+	if err != nil {
+		logger.Error("Failed to load OSCAL component definitions from bundles", "dir", appDir.BundleDir(), "err", err)
+		return nil, err
+	}
+
+	logger.Debug("Scanning governance directory", "dir", appDir.GovernanceDir())
+	if cats, ok, cerr := loadLayer2Catalogs(appDir.GovernanceDir(), logger); cerr != nil {
+		logger.Error("Failed loading Gemara Layer 2 catalogs", "dir", filepath.Join(appDir.GovernanceDir(), "catalogs"), "err", cerr)
+		return nil, cerr
+	} else if ok {
+		logger.Debug("Detected Gemara Layer 2 catalogs", "dir", filepath.Join(appDir.GovernanceDir(), "catalogs"), "count", len(cats))
+		// Load parameters from governance directory if present
+		params, _ := loadGemaraParameters(appDir.GovernanceDir(), logger)
+		for _, cat := range cats {
+			def := catalogToCompDef(cat, params)
+			defs = append(defs, def)
+		}
+	}
+	return defs, nil
+}
+
+// loadLayer2Catalogs loads Gemara Layer 2 catalogs from a given directory.
+// Returns catalogs, whether any were found, and an error for I/O failures.
+func loadLayer2Catalogs(dir string, logger hclog.Logger) ([]layer2.Catalog, bool, error) {
+	var catalogs []layer2.Catalog
+	searchRoot := filepath.Join(dir, "catalogs")
+	if _, err := os.Stat(searchRoot); err != nil {
+		logger.Debug("Catalogs directory not found", "path", searchRoot)
+		return nil, false, nil
+	}
+	entries, err := os.ReadDir(searchRoot)
+	if err != nil {
+		logger.Debug("Catalogs directory unreadable", "path", searchRoot, "err", err)
+		return nil, false, fmt.Errorf("failed to read catalogs directory %s: %w", searchRoot, err)
+	}
+
+	// Load each file individually as a catalog
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		cleanedPath := filepath.Clean(filepath.Join(searchRoot, e.Name()))
+		var cat layer2.Catalog
+		if err := cat.LoadFile(fmt.Sprintf("file://%s", cleanedPath)); err != nil {
+			return nil, false, fmt.Errorf("failed to load catalog file %s: %w", cleanedPath, err)
+		}
+		// Minimal validation
+		if cat.Metadata.Id != "" && len(cat.ControlFamilies) > 0 {
+			catalogs = append(catalogs, cat)
+		}
+	}
+
+	return catalogs, len(catalogs) > 0, nil
+}
+
+// loadGemaraParameters attempts to load Gemara parameters from common locations within governance.
+// It returns loaded parameters and a boolean indicating whether any file was found/loaded.
+func loadGemaraParameters(governanceDir string, logger hclog.Logger) (component.Parameters, bool) {
+	var params component.Parameters
+	candidates := []string{
+		filepath.Join(governanceDir, "parameters.yaml"),
+		filepath.Join(governanceDir, "parameters.yml"),
+	}
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			if loadErr := params.Load(p); loadErr == nil {
+				logger.Debug("Loaded Gemara parameters", "file", p)
+				return params, true
+			}
+		}
+	}
+	return component.Parameters{}, false
+}
+
+// catalogToCompDef converts a single Gemara Layer 2 catalog into an OSCAL ComponentDefinition.
+// The component and metadata title are derived from the catalog metadata (preferred).
+func catalogToCompDef(cat layer2.Catalog, params component.Parameters) oscalTypes.ComponentDefinition {
+	componentTitle := cat.Metadata.Title
+	if componentTitle == "" {
+		componentTitle = cat.Metadata.Id
+	}
+	version := "v0"
+	builder := component.NewDefinitionBuilder(componentTitle, version)
+	builder.AddTargetComponent(componentTitle, "system", cat, params)
+	return builder.Build()
+}
+
+// loadLayer1Guidance loads Gemara Layer 1 guidance documents from governance/guidance
+// and returns the successfully parsed documents.
+func loadLayer1Guidance(governanceDir string, logger hclog.Logger) ([]layer1.GuidanceDocument, error) {
+	var docs []layer1.GuidanceDocument
+	guidanceRoot := filepath.Join(governanceDir, "guidance")
+	if _, err := os.Stat(guidanceRoot); err != nil {
+		logger.Debug("Guidance directory not found", "path", guidanceRoot)
+		return docs, nil
+	}
+	entries, err := os.ReadDir(guidanceRoot)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read guidance directory %s: %w", guidanceRoot, err)
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		cleanedPath := filepath.Clean(filepath.Join(guidanceRoot, e.Name()))
+		var gd layer1.GuidanceDocument
+		if err := gd.LoadFile(fmt.Sprintf("file://%s", cleanedPath)); err != nil {
+			return nil, fmt.Errorf("failed to load guidance file %s: %w", cleanedPath, err)
+		}
+		docs = append(docs, gd)
+	}
+	return docs, nil
+}
+
+// guidanceToProfile converts a Gemara Layer 1 guidance document into an OSCAL Profile.
+func guidanceToProfile(gd layer1.GuidanceDocument, sourceHref string) (oscalTypes.Profile, error) {
+	return controls.ToOSCALProfile(gd, sourceHref)
+}
+
+// writeProfile writes an OSCAL Profile under controls/ and returns the local file href.
+func writeProfile(profile oscalTypes.Profile, guidanceID string, appDir ApplicationDirectory, logger hclog.Logger) (string, error) {
+	filename := fmt.Sprintf("%s.profile.json", guidanceID)
+	dstPath := filepath.Join(appDir.ControlDir(), filename)
+	payload := oscalTypes.OscalModels{
+		Profile: &profile,
+	}
+	data, err := json.MarshalIndent(payload, "", " ")
+	if err != nil {
+		return "", fmt.Errorf("marshal profile %s: %w", guidanceID, err)
+	}
+	if err := os.WriteFile(dstPath, data, 0600); err != nil {
+		return "", fmt.Errorf("write profile %s: %w", dstPath, err)
+	}
+	href := fmt.Sprintf("file://%s", filepath.Join(ControlsDir, filename))
+	logger.Debug("Wrote local OSCAL profile from guidance", "guidance", guidanceID, "href", href)
+	return href, nil
+}
+
+// prepareGuidanceProfiles orchestrates loading L1 guidance, converting to OSCAL Profiles,
+// writing to controls/, and returns a map of guidanceId -> profile href.
+func prepareGuidanceProfiles(governanceDir string, appDir ApplicationDirectory, logger hclog.Logger) (map[string]string, error) {
+	result := make(map[string]string)
+	docs, err := loadLayer1Guidance(governanceDir, logger)
+	if err != nil {
+		return nil, err
+	}
+	for _, gd := range docs {
+		gid := gd.Metadata.Id
+		if gid == "" {
+			// Derive id from a stable surrogate if missing
+			gid = strings.ToLower(strings.ReplaceAll(gd.Metadata.Title, " ", "-"))
+			if gid == "" {
+				continue
+			}
+		}
+		profile, err := guidanceToProfile(gd, gid)
+		if err != nil {
+			logger.Debug("Profile conversion failed", "guidance", gid, "err", err)
+			continue
+		}
+		href, err := writeProfile(profile, gid, appDir, logger)
+		if err != nil {
+			logger.Debug("Profile write failed", "guidance", gid, "err", err)
+			continue
+		}
+		result[gid] = href
+	}
+	return result, nil
+}
 // Config creates a new C2P config for the ComplyTime CLI to use to configure
 // the plugin manager.
 func Config(a ApplicationDirectory) (*framework.C2PConfig, error) {

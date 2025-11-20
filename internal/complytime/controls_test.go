@@ -7,6 +7,7 @@ import (
 
 	"github.com/oscal-compass/oscal-sdk-go/validation"
 	"github.com/stretchr/testify/require"
+	"github.com/hashicorp/go-hclog"
 )
 
 func TestLoadFrameworks(t *testing.T) {
@@ -46,7 +47,8 @@ func TestLoadFrameworks(t *testing.T) {
 	for _, c := range tests {
 		t.Run(c.name, func(t *testing.T) {
 			appDir := c.appDir()
-			gotFrameworks, err := LoadFrameworks(appDir, validation.NoopValidator{})
+			logger := hclog.NewNullLogger()
+			gotFrameworks, err := LoadFrameworks(appDir, validation.NoopValidator{}, logger)
 			if c.wantErr != nil {
 				require.ErrorIs(t, err, c.wantErr)
 			} else {

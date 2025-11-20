@@ -5,6 +5,7 @@ package complytime
 import (
 	"fmt"
 	"io"
+	"github.com/hashicorp/go-hclog"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -30,8 +31,8 @@ type Framework struct {
 }
 
 // LoadFrameworks returns all loaded framework information from a given application directory.
-func LoadFrameworks(appDir ApplicationDirectory, validator validation.Validator) ([]Framework, error) {
-	definitions, err := FindComponentDefinitions(appDir.BundleDir(), validator)
+func LoadFrameworks(appDir ApplicationDirectory, validator validation.Validator, logger hclog.Logger) ([]Framework, error) {
+	definitions, err := FindAllComponentDefinitions(appDir, validator, logger)
 	if err != nil {
 		return nil, fmt.Errorf("error finding component defintions in %s: %w", appDir.BundleDir(), err)
 	}
@@ -80,15 +81,25 @@ func processComponent(appDir ApplicationDirectory, component oscalTypes.DefinedC
 			return nil, fmt.Errorf("no framework information found for implemenation %q", implementation.Description)
 		}
 
-		// Load profile of local and get more information for the description
+		// Try to load a local profile to get a nice title; tolerate external sources by falling back
+		var frameworkTitle string
 		profile, err := LoadProfile(appDir, implementation.Source, validator)
-		if err != nil {
-			return nil, fmt.Errorf("error loading control source %s for component %s: %w", frameworkShortName, component.Title, err)
+		if err == nil {
+			frameworkTitle = profile.Metadata.Title
+		} else {
+			// Prefer the component's short title, then implementation description, then short name
+			if component.Title != "" {
+				frameworkTitle = component.Title
+			} else if implementation.Description != "" {
+				frameworkTitle = implementation.Description
+			} else {
+				frameworkTitle = frameworkShortName
+			}
 		}
 
 		newFramework := Framework{
 			ID:    frameworkShortName,
-			Title: profile.Metadata.Title,
+			Title: frameworkTitle,
 		}
 		frameworks = append(frameworks, newFramework)
 

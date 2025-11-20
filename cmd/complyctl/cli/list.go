@@ -51,7 +51,7 @@ func runList(opts *listOptions) error {
 	logger.Debug(fmt.Sprintf("Using application directory: %s", appDir.AppDir()))
 
 	validator := validation.NewSchemaValidator()
-	frameworks, err := complytime.LoadFrameworks(appDir, validator)
+	frameworks, err := complytime.LoadFrameworks(appDir, validator, logger)
 	if err != nil {
 		return err
 	}
@@ -81,7 +81,7 @@ func showPrettyDefinitionTable(frameworks []complytime.Framework) terminal.Model
 		table.WithColumns(columns),
 		table.WithRows(rows),
 		table.WithFocused(true),
-		table.WithHeight(7),
+		table.WithHeight(len(rows) + 1),
 	)
 
 	tableStyle := table.DefaultStyles()

@@ -148,7 +148,7 @@ func runInfo(opts *infoOptions) error {
 
 	validator := validation.NewSchemaValidator()
 
-	compDefs, err := complytime.FindComponentDefinitions(appDir.BundleDir(), validator)
+	compDefs, err := complytime.FindAllComponentDefinitions(appDir, validator, logger)
 	if err != nil {
 		return fmt.Errorf("failed to find component definitions: %w", err)
 	}
@@ -209,8 +209,18 @@ func processControlImplementations(components []oscalTypes.DefinedComponent, rul
 						// Initialize controlDetails if not already present
 						controlTitle, err := complytime.GetControlTitle(ir.ControlId, controlImp.Source, appDir, validator)
 						if err != nil {
-							logger.Warn("could not get title for control %s: %v", ir.ControlId, err)
+							if strings.HasPrefix(controlImp.Source, "file://") {
+								logger.Warn("could not get title for control %s: %v", ir.ControlId, err)
+							} else {
+								logger.Debug("Skipping profile title lookup for external source", "control", ir.ControlId, "source", controlImp.Source)
+							}
 							controlTitle = ""
+						}
+						// If no local profile/catalog title is available (or source is external),
+						// fall back to using the control ID to avoid empty titles in the table.
+						if controlTitle == "" || !strings.HasPrefix(controlImp.Source, "file://") {
+							logger.Debug("Falling back to control ID for title", "control", ir.ControlId, "source", controlImp.Source)
+							controlTitle = ir.ControlId
 						}
 
 						controlDetails = control{

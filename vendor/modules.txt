@@ -100,6 +100,11 @@ github.com/cloudflare/circl/math/mlsbset
 github.com/cloudflare/circl/sign
 github.com/cloudflare/circl/sign/ed25519
 github.com/cloudflare/circl/sign/ed448
+# github.com/complytime/gemara2oscal v0.0.0-20251027194523-4ead3ea25a6c
+## explicit; go 1.24.4
+github.com/complytime/gemara2oscal/component
+github.com/complytime/gemara2oscal/controls
+github.com/complytime/gemara2oscal/internal/utils
 # github.com/cyphar/filepath-securejoin v0.4.1
 ## explicit; go 1.18
 github.com/cyphar/filepath-securejoin
@@ -371,6 +376,14 @@ github.com/oscal-compass/oscal-sdk-go/rules
 github.com/oscal-compass/oscal-sdk-go/settings
 github.com/oscal-compass/oscal-sdk-go/transformers
 github.com/oscal-compass/oscal-sdk-go/validation
+# github.com/ossf/gemara v0.14.0 => /home/gvauter/go/github.com/gvauter/gemara
+## explicit; go 1.23.0
+github.com/ossf/gemara/internal/loaders
+github.com/ossf/gemara/internal/oscal
+github.com/ossf/gemara/layer1
+github.com/ossf/gemara/layer2
+github.com/ossf/gemara/layer3
+github.com/ossf/gemara/layer4
 # github.com/pjbgf/sha1cd v0.3.2
 ## explicit; go 1.21
 github.com/pjbgf/sha1cd
@@ -1148,3 +1161,4 @@ sigs.k8s.io/structured-merge-diff/v6/value
 # sigs.k8s.io/yaml v1.6.0
 ## explicit; go 1.22
 sigs.k8s.io/yaml
+# github.com/ossf/gemara => /home/gvauter/go/github.com/gvauter/gemara
