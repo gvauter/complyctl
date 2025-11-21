@@ -21,6 +21,7 @@ import (
 	"github.com/oscal-compass/compliance-to-policy-go/v2/framework/actions"
 	"github.com/oscal-compass/oscal-sdk-go/models"
 	"github.com/oscal-compass/oscal-sdk-go/models/components"
+	"github.com/oscal-compass/oscal-sdk-go/settings"
 	"github.com/oscal-compass/oscal-sdk-go/validation"
 )
 
@@ -224,11 +225,42 @@ func FindAllComponentDefinitions(appDir ApplicationDirectory, validator validati
 			defs = append(defs, def)
 		}
 	}
+
+	profilesByGuidance, gerr := prepareGuidanceProfiles(appDir.GovernanceDir(), appDir, logger)
+	if gerr != nil {
+		return nil, gerr
+	}
+	if len(profilesByGuidance) > 0 {
+		logger.Info("Attempting to repoint control implementation sources using Layer1 profiles", "profiles", len(profilesByGuidance))
+		for di := range defs {
+			def := &defs[di]
+			if def.Components == nil {
+				continue
+			}
+			for ci := range *def.Components {
+				comp := &(*def.Components)[ci]
+				if comp.ControlImplementations == nil {
+					continue
+				}
+				for ki := range *comp.ControlImplementations {
+					impl := &(*comp.ControlImplementations)[ki]
+					frameworkID, ok := settings.GetFrameworkShortName(*impl)
+					if !ok {
+						continue
+					}
+					if href, found := profilesByGuidance[strings.ToLower(frameworkID)]; found {
+						logger.Info("Repointing control implementation source to local profile", "frameworkId", frameworkID, "oldSource", impl.Source, "newSource", href, "component", comp.Title)
+						impl.Source = href
+					}
+				}
+			}
+		}
+	}
 	return defs, nil
 }
 
 // loadLayer2Catalogs loads Gemara Layer 2 catalogs from a given directory.
-// Returns catalogs, whether any were found, and an error for I/O failures.
+// Returns catalogs, whether any were found, and an error for failures.
 func loadLayer2Catalogs(dir string, logger hclog.Logger) ([]layer2.Catalog, bool, error) {
 	var catalogs []layer2.Catalog
 	searchRoot := filepath.Join(dir, "catalogs")
@@ -320,11 +352,6 @@ func loadLayer1Guidance(governanceDir string, logger hclog.Logger) ([]layer1.Gui
 	return docs, nil
 }
 
-// guidanceToProfile converts a Gemara Layer 1 guidance document into an OSCAL Profile.
-func guidanceToProfile(gd layer1.GuidanceDocument, sourceHref string) (oscalTypes.Profile, error) {
-	return controls.ToOSCALProfile(gd, sourceHref)
-}
-
 // writeProfile writes an OSCAL Profile under controls/ and returns the local file href.
 func writeProfile(profile oscalTypes.Profile, guidanceID string, appDir ApplicationDirectory, logger hclog.Logger) (string, error) {
 	filename := fmt.Sprintf("%s.profile.json", guidanceID)
@@ -344,35 +371,78 @@ func writeProfile(profile oscalTypes.Profile, guidanceID string, appDir Applicat
 	return href, nil
 }
 
+// writeCatalog writes an OSCAL Catalog under controls/ and returns the local file href.
+func writeCatalog(catalog oscalTypes.Catalog, guidanceID string, appDir ApplicationDirectory, logger hclog.Logger) (string, error) {
+	filename := fmt.Sprintf("%s.catalog.json", guidanceID)
+	dstPath := filepath.Join(appDir.ControlDir(), filename)
+	payload := oscalTypes.OscalModels{
+		Catalog: &catalog,
+	}
+	data, err := json.MarshalIndent(payload, "", " ")
+	if err != nil {
+		return "", fmt.Errorf("marshal catalog %s: %w", guidanceID, err)
+	}
+	if err := os.WriteFile(dstPath, data, 0600); err != nil {
+		return "", fmt.Errorf("write catalog %s: %w", dstPath, err)
+	}
+	href := fmt.Sprintf("file://%s", filepath.Join(ControlsDir, filename))
+	logger.Debug("Wrote local OSCAL catalog from guidance", "guidance", guidanceID, "href", href)
+	return href, nil
+}
+
 // prepareGuidanceProfiles orchestrates loading L1 guidance, converting to OSCAL Profiles,
-// writing to controls/, and returns a map of guidanceId -> profile href.
+// writing to controls/ (along with catalogs), and returns a map of guidanceId -> profile href.
 func prepareGuidanceProfiles(governanceDir string, appDir ApplicationDirectory, logger hclog.Logger) (map[string]string, error) {
 	result := make(map[string]string)
 	docs, err := loadLayer1Guidance(governanceDir, logger)
 	if err != nil {
 		return nil, err
 	}
+	logger.Debug("Layer1 guidance documents discovered", "count", len(docs), "governanceDir", governanceDir)
 	for _, gd := range docs {
 		gid := gd.Metadata.Id
 		if gid == "" {
 			// Derive id from a stable surrogate if missing
 			gid = strings.ToLower(strings.ReplaceAll(gd.Metadata.Title, " ", "-"))
 			if gid == "" {
+				logger.Info("Skipping guidance with no identifiable ID or title")
 				continue
 			}
 		}
-		profile, err := guidanceToProfile(gd, gid)
+		logger.Info("Processing guidance", "guidanceId", gid, "title", gd.Metadata.Title)
+		// First create a catalog from guidance and write it
+		catalog, err := controls.ToOSCALCatalog(gd)
 		if err != nil {
-			logger.Debug("Profile conversion failed", "guidance", gid, "err", err)
+			logger.Info("Catalog conversion failed", "guidance", gid, "err", err)
 			continue
 		}
-		href, err := writeProfile(profile, gid, appDir, logger)
+		catalogHref, err := writeCatalog(catalog, gid, appDir, logger)
 		if err != nil {
-			logger.Debug("Profile write failed", "guidance", gid, "err", err)
+			logger.Info("Catalog write failed", "guidance", gid, "err", err)
 			continue
 		}
-		result[gid] = href
+		// Build profile and make it import the generated catalog for title resolution
+		profile, err := controls.ToOSCALProfile(gd, gid)
+		if err != nil {
+			logger.Info("Profile conversion failed", "guidance", gid, "err", err)
+			continue
+		}
+		profile.Imports = []oscalTypes.Import{
+			{
+				Href:       catalogHref,
+				IncludeAll: &oscalTypes.IncludeAll{},
+			},
+		}
+		profileHref, err := writeProfile(profile, gid, appDir, logger)
+		if err != nil {
+			logger.Info("Profile write failed", "guidance", gid, "err", err)
+			continue
+		}
+		logger.Info("Prepared local profile for guidance", "guidanceId", gid, "profileHref", profileHref, "catalogHref", catalogHref)
+		// Use lower-cased key to allow case-insensitive matching later
+		result[strings.ToLower(gid)] = profileHref
 	}
+	logger.Info("Layer1 guidance profiles prepared", "count", len(result))
 	return result, nil
 }
 // Config creates a new C2P config for the ComplyTime CLI to use to configure
@@ -452,3 +522,4 @@ func replacePlaceholdersInPlan(plan *oscalTypes.AssessmentPlan, frameworkId stri
 		}
 	}
 }
+
