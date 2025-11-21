@@ -1,0 +1,19 @@
+metadata:
+  id: gemara-test
+  title: Gemara Test Guidance
+  version: "0.1.0"
+document-type: Guidance
+categories:
+  - id: cat-1
+    title: Category One
+    description: Test category
+    guidelines:
+      - id: G-1
+        title: Configure secure defaults
+      - id: G-2
+        title: Enforce access controls
+      - id: G-3
+        title: Monitor and log events
+guidance-references: []
+
+

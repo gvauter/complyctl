@@ -1,0 +1,27 @@
+metadata:
+  id: GEMARA-L2-TEST
+  title: Gemara L2 Test Catalog
+  version: "0.1.0"
+  mapping-references:
+    - id: GEMARA-TEST
+      title: Gemara Test Guidance
+      url: https://example.org/gemara-test
+control-families:
+  - id: GOV
+    title: Governance
+    controls:
+      - id: CTRL-1
+        title: Test Control 1
+        objective: Example objective
+        assessment-requirements:
+          - id: R-1
+            text: Example requirement mapping to GEMARA-TEST controls
+            applicability: []
+        guideline-mappings:
+          - reference-id: GEMARA-TEST
+            entries:
+              - reference-id: G-1
+              - reference-id: G-2
+              - reference-id: G-3
+
+
