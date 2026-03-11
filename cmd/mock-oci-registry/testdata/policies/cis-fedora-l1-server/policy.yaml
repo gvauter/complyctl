@@ -1,0 +1,156 @@
+title: Linux VM Compliance Policy - CIS Fedora Server L1 and FINOS CCC
+metadata:
+  id: linux-vm-compliance-policy
+  version: "1.0.0"
+  description: >-
+    Organization policy for assessing Linux virtual machines against a unified set of
+    security controls derived from the CIS Fedora Server Level 1 Benchmark and the
+    FINOS Common Cloud Controls framework. This policy defines assessment plans that
+    leverage OpenSCAP via the complyctl toolchain to evaluate audit logging, access
+    control, and cryptographic policy compliance.
+  author:
+    id: complytime-demos
+    name: ComplyTime Demos
+    type: Human
+  mapping-references:
+    - id: linux-vm-security-catalog
+      title: Linux VM Security Controls Catalog
+      version: "1.0.0"
+      description: Gemara Layer 2 control catalog for Linux VM security
+contacts:
+  responsible:
+    - name: Platform Engineering Team
+  accountable:
+    - name: Chief Information Security Officer
+scope:
+  in:
+    technologies:
+      - Linux Virtual Machines
+      - Fedora
+imports:
+  catalogs:
+    - reference-id: linux-vm-security-catalog
+adherence:
+  evaluation-methods:
+    - type: automated
+      description: OpenSCAP automated compliance evaluation
+      executor:
+        id: openscap
+        name: OpenSCAP
+        type: Software
+  assessment-plans:
+    # --- AUDIT: LVMS-AUDIT-01 ---
+    - id: package_audit_installed
+      requirement-id: LVMS-AUDIT-01.AR01
+      frequency: on-demand
+      evaluation-methods:
+        - type: automated
+          executor:
+            id: openscap
+    - id: service_auditd_enabled
+      requirement-id: LVMS-AUDIT-01.AR01
+      frequency: on-demand
+      evaluation-methods:
+        - type: automated
+          executor:
+            id: openscap
+    - id: grub2_audit_argument
+      requirement-id: LVMS-AUDIT-01.AR02
+      frequency: on-demand
+      evaluation-methods:
+        - type: automated
+          executor:
+            id: openscap
+    - id: grub2_audit_backlog_limit_argument
+      requirement-id: LVMS-AUDIT-01.AR02
+      frequency: on-demand
+      evaluation-methods:
+        - type: automated
+          executor:
+            id: openscap
+    - id: audit_rules_login_events
+      requirement-id: LVMS-AUDIT-01.AR03
+      frequency: on-demand
+      evaluation-methods:
+        - type: automated
+          executor:
+            id: openscap
+    - id: audit_rules_login_events_faillock
+      requirement-id: LVMS-AUDIT-01.AR03
+      frequency: on-demand
+      evaluation-methods:
+        - type: automated
+          executor:
+            id: openscap
+    - id: audit_rules_login_events_lastlog
+      requirement-id: LVMS-AUDIT-01.AR03
+      frequency: on-demand
+      evaluation-methods:
+        - type: automated
+          executor:
+            id: openscap
+    - id: audit_rules_session_events
+      requirement-id: LVMS-AUDIT-01.AR04
+      frequency: on-demand
+      evaluation-methods:
+        - type: automated
+          executor:
+            id: openscap
+    # --- ACCESS: LVMS-ACCESS-01 ---
+    - id: sshd_disable_root_login
+      requirement-id: LVMS-ACCESS-01.AR01
+      frequency: on-demand
+      evaluation-methods:
+        - type: automated
+          executor:
+            id: openscap
+    - id: sshd_set_idle_timeout
+      requirement-id: LVMS-ACCESS-01.AR02
+      frequency: on-demand
+      evaluation-methods:
+        - type: automated
+          executor:
+            id: openscap
+    - id: file_permissions_sshd_config
+      requirement-id: LVMS-ACCESS-01.AR03
+      frequency: on-demand
+      evaluation-methods:
+        - type: automated
+          executor:
+            id: openscap
+    - id: file_owner_sshd_config
+      requirement-id: LVMS-ACCESS-01.AR03
+      frequency: on-demand
+      evaluation-methods:
+        - type: automated
+          executor:
+            id: openscap
+    - id: file_groupowner_sshd_config
+      requirement-id: LVMS-ACCESS-01.AR03
+      frequency: on-demand
+      evaluation-methods:
+        - type: automated
+          executor:
+            id: openscap
+    - id: configure_ssh_crypto_policy
+      requirement-id: LVMS-ACCESS-01.AR04
+      frequency: on-demand
+      evaluation-methods:
+        - type: automated
+          executor:
+            id: openscap
+    # --- CRYPTO: LVMS-CRYPTO-01 ---
+    - id: configure_crypto_policy
+      requirement-id: LVMS-CRYPTO-01.AR01
+      frequency: on-demand
+      evaluation-methods:
+        - type: automated
+          executor:
+            id: openscap
+    - id: configure_custom_crypto_policy_cis
+      requirement-id: LVMS-CRYPTO-01.AR02
+      frequency: on-demand
+      evaluation-methods:
+        - type: automated
+          executor:
+            id: openscap

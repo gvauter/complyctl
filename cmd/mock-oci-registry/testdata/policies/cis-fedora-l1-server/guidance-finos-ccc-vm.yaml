@@ -1,0 +1,196 @@
+title: FINOS Common Cloud Controls - VM Security Guidance
+metadata:
+  id: finos-ccc-vm-guidance
+  version: "1.0.0"
+  description: >-
+    Guidance catalog derived from the FINOS Common Cloud Controls (CCC) framework,
+    scoped to the Virtual Machines (CCC.VM) and Core (CCC.Core) components.
+    This subset focuses on three areas that overlap with CIS Linux benchmarks:
+    access and change logging, access control for untrusted entities, and
+    data encryption at rest.
+  author:
+    id: complytime-demos
+    name: ComplyTime Demos
+    type: Human
+  mapping-references:
+    - id: finos-ccc
+      title: FINOS Common Cloud Controls
+      version: "2025.10"
+      description: >-
+        Open standard for consistent cybersecurity, resiliency, and compliance
+        controls for cloud deployments, maintained by the FINOS project.
+      url: https://ccc.finos.org
+    - id: finos-ccc-vm
+      title: FINOS CCC Virtual Machines Component
+      version: "DEV"
+      description: Controls specific to virtual machine cloud services
+      url: https://ccc.finos.org/ccc/CCC.VM
+  draft: true
+type: Framework
+front-matter: >-
+  This guidance catalog captures recommendations from the FINOS Common Cloud Controls
+  framework relevant to virtual machine security. FINOS CCC provides technology-neutral
+  controls for cloud services; this subset distills the guidance applicable to Linux VM
+  security posture into three families that map naturally to OS-level compliance checks:
+  logging and monitoring, identity and access management, and data protection.
+families:
+  - id: LOG-MON
+    title: Logging and Monitoring
+    description: >-
+      Guidelines for ensuring comprehensive logging of access attempts,
+      configuration changes, and data operations to maintain audit trails.
+  - id: IAM
+    title: Identity and Access Management
+    description: >-
+      Guidelines for enforcing least-privilege access, restricting unauthorized
+      entities, and securing authentication mechanisms.
+  - id: DATA
+    title: Data Protection
+    description: >-
+      Guidelines for protecting data confidentiality and integrity through
+      encryption and approved cryptographic standards.
+guidelines:
+  - id: CCC-LOG-ACCESS-CHANGES
+    title: Log all access attempts and configuration changes
+    objective: >-
+      Ensure that all access attempts and configuration changes to the service and
+      its resources are logged with sufficient detail for security monitoring and
+      compliance auditing.
+    family: LOG-MON
+    applicability:
+      - Cloud virtual machines
+      - Linux server instances
+      - All deployment environments
+    rationale:
+      importance: >-
+        Comprehensive logging is the foundation of security monitoring and incident
+        response. Without logs capturing who accessed what and when, organizations
+        cannot detect unauthorized access, investigate incidents, or demonstrate
+        compliance with regulatory requirements.
+      goals:
+        - Maintain a complete audit trail of all access and change events
+        - Enable real-time security monitoring and alerting
+        - Support forensic investigation and compliance reporting
+    recommendations:
+      - Enable system audit daemon to capture kernel-level access events
+      - Configure audit rules to record authentication, authorization, and modification events
+      - Ensure logs capture client identity, timestamp, and operation result
+      - Protect log integrity by restricting write access to the logging subsystem
+    statements:
+      - id: CCC-LOG-ACCESS-CHANGES.01
+        title: Administrative access logging
+        text: >-
+          When administrative access or configuration change is attempted on the
+          service or a child resource, the service MUST log the client identity,
+          time, and result of the attempt.
+        recommendations:
+          - Derived from CCC.Core.CN04.AR01
+      - id: CCC-LOG-ACCESS-CHANGES.02
+        title: Data modification logging
+        text: >-
+          When any attempt is made to modify data on the service or a child
+          resource, the service MUST log the client identity, time, and result
+          of the attempt.
+        recommendations:
+          - Derived from CCC.Core.CN04.AR02
+      - id: CCC-LOG-ACCESS-CHANGES.03
+        title: Data read logging
+        text: >-
+          When any attempt is made to read data on the service or a child
+          resource, the service MUST log the client identity, time, and result
+          of the attempt.
+        recommendations:
+          - Derived from CCC.Core.CN04.AR03
+    see-also:
+      - CCC-PREVENT-UNTRUSTED-ACCESS
+  - id: CCC-PREVENT-UNTRUSTED-ACCESS
+    title: Prevent access from untrusted entities
+    objective: >-
+      Ensure that secure access controls enforce the principle of least privilege
+      to restrict access to authorized entities from explicitly trusted sources only.
+    family: IAM
+    applicability:
+      - Cloud virtual machines
+      - Linux server instances
+      - All deployment environments
+    rationale:
+      importance: >-
+        Unrestricted access to virtual machines allows unauthorized entities to
+        read or modify data, change configurations, or use the system as a
+        pivot point for lateral movement. Enforcing least privilege and blocking
+        untrusted sources is essential for protecting the system and its data.
+      goals:
+        - Restrict access to explicitly authorized entities only
+        - Block requests from unauthorized sources at all service interfaces
+        - Prevent information leakage to unauthorized requestors
+    recommendations:
+      - Disable direct root access to enforce role-based access
+      - Configure SSH to reject connections from unauthorized entities
+      - Enforce session timeouts to limit exposure from abandoned sessions
+      - Restrict remote access interfaces with network-level controls
+    statements:
+      - id: CCC-PREVENT-UNTRUSTED-ACCESS.01
+        title: Block unauthorized data modification
+        text: >-
+          When an attempt is made to modify data on the service or a child
+          resource, the service MUST block requests from unauthorized entities.
+        recommendations:
+          - Derived from CCC.Core.CN05.AR01
+      - id: CCC-PREVENT-UNTRUSTED-ACCESS.02
+        title: Refuse unauthorized administrative access
+        text: >-
+          When administrative access or configuration change is attempted on the
+          service or a child resource, the service MUST refuse requests from
+          unauthorized entities.
+        recommendations:
+          - Derived from CCC.Core.CN05.AR02
+      - id: CCC-PREVENT-UNTRUSTED-ACCESS.03
+        title: Refuse all unauthorized requests
+        text: >-
+          When any request is made to the service or a child resource, the
+          service MUST refuse requests from unauthorized entities.
+        recommendations:
+          - Derived from CCC.Core.CN05.AR06
+    see-also:
+      - CCC-LOG-ACCESS-CHANGES
+  - id: CCC-ENCRYPT-DATA-STORAGE
+    title: Encrypt data at rest using approved cryptographic standards
+    objective: >-
+      Ensure that all data stored on the system is protected using strong,
+      approved cryptographic algorithms and that the system-wide cryptographic
+      policy enforces minimum standards for all encryption operations.
+    family: DATA
+    applicability:
+      - Cloud virtual machines
+      - Linux server instances
+      - All deployment environments
+    rationale:
+      importance: >-
+        Data stored without encryption is vulnerable to unauthorized access if
+        physical or logical access controls are bypassed. A strong system-wide
+        cryptographic policy ensures that all encryption operations, whether for
+        data at rest, in transit, or in memory, use approved algorithms that
+        resist known attacks.
+      goals:
+        - Protect stored data from unauthorized access through encryption
+        - Enforce minimum cryptographic standards across all system services
+        - Eliminate use of deprecated or weak cryptographic algorithms
+    recommendations:
+      - Configure system-wide cryptographic policy to enforce approved algorithms
+      - Disable legacy and weak cipher suites including SHA-1 and CBC for SSH
+      - Ensure all cryptographic subsystems (TLS, SSH, disk) follow the policy
+    statements:
+      - id: CCC-ENCRYPT-DATA-STORAGE.01
+        title: Approved encryption algorithms
+        text: >-
+          The system MUST use industry-standard cryptographic algorithms for all
+          encryption operations, including data storage and transport.
+        recommendations:
+          - Derived from CCC.Core.CN02 objective
+      - id: CCC-ENCRYPT-DATA-STORAGE.02
+        title: No legacy cryptographic algorithms
+        text: >-
+          The system MUST NOT permit the use of deprecated or legacy cryptographic
+          algorithms that are known to be vulnerable.
+        recommendations:
+          - Derived from CCC.Core.CN11 objective regarding approved algorithms

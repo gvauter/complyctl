@@ -1,0 +1,220 @@
+title: CIS Fedora Linux Benchmark - Server Level 1 Guidance
+metadata:
+  id: cis-fedora-server-l1-guidance
+  version: "1.0.0"
+  description: >-
+    Guidance catalog derived from the CIS Fedora Linux Benchmark for Level 1 - Server.
+    This subset focuses on three critical security domains: audit logging, access control,
+    and cryptographic policy. These guidelines map to specific OpenSCAP rules from the
+    ComplianceAsCode cis_server_l1 profile for Fedora.
+  author:
+    id: complytime-demos
+    name: ComplyTime Demos
+    type: Human
+  mapping-references:
+    - id: cis-fedora
+      title: CIS Fedora Linux Benchmark
+      version: "Draft"
+      description: CIS Benchmark for Fedora Linux based on CIS Fedora 40 Branch Benchmark
+      url: https://workbench.cisecurity.org/benchmarks/20722
+    - id: openscap-ssg
+      title: SCAP Security Guide - Fedora
+      version: "latest"
+      description: ComplianceAsCode content for Fedora Linux
+      url: https://github.com/ComplianceAsCode/content
+  draft: true
+type: Best Practice
+front-matter: >-
+  This guidance catalog captures key security recommendations from the CIS Fedora Linux
+  Benchmark (Level 1 - Server). It is scoped to three areas that are commonly required
+  across multiple compliance frameworks: audit logging, access control and authentication,
+  and system-wide cryptographic policy. Each guideline references concrete OpenSCAP rules
+  that can be evaluated automatically using the complyctl toolchain.
+families:
+  - id: AUDIT
+    title: Audit and Logging
+    description: >-
+      Guidelines related to system audit configuration, ensuring that security-relevant
+      events are captured, stored, and protected from tampering.
+  - id: ACCESS
+    title: Access Control and Authentication
+    description: >-
+      Guidelines related to restricting system access to authorized entities, including
+      SSH server hardening and authentication configuration.
+  - id: CRYPTO
+    title: Cryptographic Policy
+    description: >-
+      Guidelines related to system-wide cryptographic standards, ensuring that only
+      approved algorithms and protocols are permitted.
+guidelines:
+  - id: CIS-AUDIT-SERVICE
+    title: Ensure audit services are enabled and configured
+    objective: >-
+      Guarantee that the Linux audit subsystem (auditd) is installed, enabled, and
+      actively collecting security-relevant events on the system.
+    family: AUDIT
+    applicability:
+      - Fedora Linux servers
+      - CIS Level 1 - Server
+    rationale:
+      importance: >-
+        The audit daemon provides the foundation for all system-level audit logging.
+        Without auditd running, no kernel-level audit events will be captured,
+        leaving the system blind to unauthorized access attempts and configuration changes.
+      goals:
+        - Capture all security-relevant system events
+        - Maintain an audit trail for forensic analysis and compliance reporting
+        - Detect unauthorized access and configuration changes
+    recommendations:
+      - Install the audit package and enable the auditd service via systemctl
+      - Configure audit to start before other services using grub audit=1 parameter
+      - Ensure audit backlog limit is sufficient for system workload
+    statements:
+      - id: CIS-AUDIT-SERVICE.01
+        title: Audit package installation
+        text: The audit package MUST be installed on the system.
+        recommendations:
+          - "OpenSCAP rule: package_audit_installed"
+      - id: CIS-AUDIT-SERVICE.02
+        title: Audit service enablement
+        text: The auditd service MUST be enabled and running.
+        recommendations:
+          - "OpenSCAP rule: service_auditd_enabled"
+      - id: CIS-AUDIT-SERVICE.03
+        title: Pre-auditd audit logging
+        text: Auditing MUST be enabled for processes that start prior to auditd.
+        recommendations:
+          - "OpenSCAP rule: grub2_audit_argument"
+      - id: CIS-AUDIT-SERVICE.04
+        title: Audit backlog limit
+        text: The audit backlog limit MUST be sufficient to avoid lost events.
+        recommendations:
+          - "OpenSCAP rule: grub2_audit_backlog_limit_argument"
+    see-also:
+      - CIS-AUDIT-EVENTS
+  - id: CIS-AUDIT-EVENTS
+    title: Ensure audit rules capture access and change events
+    objective: >-
+      Configure audit rules to record login events, session initiation, and
+      changes to critical system files, ensuring a complete audit trail
+      of access and modifications.
+    family: AUDIT
+    applicability:
+      - Fedora Linux servers
+      - CIS Level 1 - Server
+    rationale:
+      importance: >-
+        Without specific audit rules, auditd will not capture the events necessary
+        to detect unauthorized access or changes. Audit rules must target login
+        attempts, session creation, and modification of identity-related files.
+      goals:
+        - Record all authentication and login events
+        - Capture session initiation and termination
+        - Track changes to user and group management files
+    recommendations:
+      - Configure audit rules for /var/log/lastlog, /var/run/faillock, and /var/log/tallylog
+      - Configure audit rules for /var/run/utmp, /var/log/wtmp, and /var/log/btmp
+    statements:
+      - id: CIS-AUDIT-EVENTS.01
+        title: Login and logout event recording
+        text: The system MUST record all login and logout events.
+        recommendations:
+          - "OpenSCAP rule: audit_rules_login_events"
+          - "OpenSCAP rule: audit_rules_login_events_faillock"
+          - "OpenSCAP rule: audit_rules_login_events_lastlog"
+      - id: CIS-AUDIT-EVENTS.02
+        title: Session initiation recording
+        text: The system MUST record session initiation information.
+        recommendations:
+          - "OpenSCAP rule: audit_rules_session_events"
+          - "OpenSCAP rule: audit_rules_session_events_utmp"
+          - "OpenSCAP rule: audit_rules_session_events_wtmp"
+          - "OpenSCAP rule: audit_rules_session_events_btmp"
+    see-also:
+      - CIS-AUDIT-SERVICE
+  - id: CIS-ACCESS-SSH
+    title: Ensure SSH server is hardened against unauthorized access
+    objective: >-
+      Harden the OpenSSH server configuration to prevent unauthorized access,
+      enforce strong authentication, and limit exposure to brute-force attacks.
+    family: ACCESS
+    applicability:
+      - Fedora Linux servers
+      - CIS Level 1 - Server
+    rationale:
+      importance: >-
+        SSH is the primary remote access mechanism for Linux servers. Misconfigured
+        SSH allows root login, weak authentication, and stale sessions that can be
+        exploited by attackers to gain persistent unauthorized access.
+      goals:
+        - Prevent direct root login over SSH
+        - Enforce idle session timeouts
+        - Restrict SSH access to approved authentication methods
+        - Ensure SSH follows system-wide cryptographic policy
+    recommendations:
+      - Disable root login in sshd_config
+      - Set ClientAliveInterval and ClientAliveCountMax for session timeouts
+      - Ensure SSH is configured to use the system crypto policy
+      - Restrict SSH access using AllowUsers or AllowGroups directives
+    statements:
+      - id: CIS-ACCESS-SSH.01
+        title: Root login disabled
+        text: SSH root login MUST be disabled.
+        recommendations:
+          - "OpenSCAP rule: sshd_disable_root_login"
+      - id: CIS-ACCESS-SSH.02
+        title: SSH idle timeout
+        text: SSH sessions MUST be configured with an idle timeout interval.
+        recommendations:
+          - "OpenSCAP rule: sshd_set_idle_timeout"
+          - "OpenSCAP rule: sshd_idle_timeout_value=5_minutes"
+      - id: CIS-ACCESS-SSH.03
+        title: SSH permissions on config
+        text: SSH server configuration files MUST have restricted permissions.
+        recommendations:
+          - "OpenSCAP rule: file_permissions_sshd_config"
+          - "OpenSCAP rule: file_owner_sshd_config"
+          - "OpenSCAP rule: file_groupowner_sshd_config"
+      - id: CIS-ACCESS-SSH.04
+        title: SSH crypto policy
+        text: SSH MUST follow the system-wide cryptographic policy.
+        recommendations:
+          - "OpenSCAP rule: configure_ssh_crypto_policy"
+  - id: CIS-CRYPTO-POLICY
+    title: Ensure system-wide cryptographic policy enforces approved standards
+    objective: >-
+      Configure the system-wide cryptographic policy to disable legacy algorithms,
+      enforce approved ciphers and MACs, and ensure all cryptographic operations
+      across the system meet minimum security standards.
+    family: CRYPTO
+    applicability:
+      - Fedora Linux servers
+      - CIS Level 1 - Server
+    rationale:
+      importance: >-
+        A weak or legacy cryptographic policy exposes the system to downgrade attacks,
+        where attackers force the use of broken algorithms. The system-wide crypto
+        policy in Fedora controls all TLS, SSH, and disk encryption cipher selections,
+        making it a single point of enforcement for cryptographic standards.
+      goals:
+        - Eliminate use of legacy or deprecated cryptographic algorithms
+        - Enforce minimum cipher strength across all system services
+        - Ensure consistent cryptographic posture for data in transit and at rest
+    recommendations:
+      - Set system-wide crypto policy to at least DEFAULT (never LEGACY)
+      - Apply CIS-specific crypto policy submodule to disable SHA-1, CBC for SSH
+      - Verify crypto policy is applied to all relevant subsystems
+    statements:
+      - id: CIS-CRYPTO-POLICY.01
+        title: No legacy crypto policy
+        text: The system-wide cryptographic policy MUST NOT be set to LEGACY.
+        recommendations:
+          - "OpenSCAP rule: configure_crypto_policy"
+      - id: CIS-CRYPTO-POLICY.02
+        title: CIS custom crypto policy
+        text: >-
+          The system MUST use a custom cryptographic policy that disables SHA-1
+          hash and signature support, configures approved MACs, and disables
+          CBC mode for SSH.
+        recommendations:
+          - "OpenSCAP rule: configure_custom_crypto_policy_cis"

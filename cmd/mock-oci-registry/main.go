@@ -11,6 +11,8 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"embed"
 	"encoding/json"
@@ -18,15 +20,18 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path"
 	"sort"
 	"strings"
 	"time"
 )
 
-//go:embed testdata/*.yaml
+//go:embed all:testdata
 var seedData embed.FS
 
 const defaultPort = "8765"
+
+const bundleRoot = "testdata/policies"
 
 // OCI media types
 const (
@@ -442,6 +447,68 @@ func (s *contentStore) enrich(req enrichmentRequest) enrichmentResponse {
 	}
 }
 
+// --- Bundle Auto-Loader ---
+
+// detectMediaType inspects YAML content for top-level keys to determine the Gemara layer type.
+func detectMediaType(data []byte) string {
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "guidelines:") {
+			return gemaraGuidanceType
+		}
+		if strings.HasPrefix(line, "controls:") {
+			return gemaraCatalogType
+		}
+		if strings.HasPrefix(line, "adherence:") {
+			return gemaraPolicyType
+		}
+	}
+	return gemaraCatalogType
+}
+
+// loadBundlesFromDir reads each subdirectory under bundleRoot as an OCI artifact bundle.
+// The subdirectory name becomes the bundle portion of the OCI repo path (e.g., "policies/{name}").
+func (s *contentStore) loadBundlesFromDir() {
+	entries, err := seedData.ReadDir(bundleRoot)
+	if err != nil {
+		log.Fatalf("failed to read bundle root %q: %v", bundleRoot, err)
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		bundleName := entry.Name()
+		bundlePath := path.Join(bundleRoot, bundleName)
+		repoName := "policies/" + bundleName
+
+		files, err := seedData.ReadDir(bundlePath)
+		if err != nil {
+			log.Fatalf("failed to read bundle %q: %v", bundlePath, err)
+		}
+
+		var layers []layerDef
+		for _, f := range files {
+			if f.IsDir() || !strings.HasSuffix(f.Name(), ".yaml") {
+				continue
+			}
+			filePath := path.Join(bundlePath, f.Name())
+			data, err := seedData.ReadFile(filePath)
+			if err != nil {
+				log.Fatalf("failed to read %q: %v", filePath, err)
+			}
+			mediaType := detectMediaType(data)
+			layers = append(layers, layerDef{mediaType: mediaType, data: data})
+		}
+
+		if len(layers) > 0 {
+			s.addArtifact(repoName, []string{"v1.0.0", "latest"}, layers)
+			log.Printf("loaded bundle %q (%d layers)", repoName, len(layers))
+		}
+	}
+}
+
 // --- Seed Data ---
 
 func (s *contentStore) seedDefaults() {
@@ -601,34 +668,8 @@ guidelines:
 `)},
 	})
 
-	// policies/cis-fedora-l1-workstation — real CIS Fedora L1 Workstation data
-	// sourced from ComplianceAsCode/oscal-content component-definitions
-	cisCatalog, err := seedData.ReadFile("testdata/cis-fedora-l1-workstation-catalog.yaml")
-	if err != nil {
-		log.Fatalf("failed to load CIS Fedora catalog seed data: %v", err)
-	}
-	cisPolicy, err := seedData.ReadFile("testdata/cis-fedora-l1-workstation-policy.yaml")
-	if err != nil {
-		log.Fatalf("failed to load CIS Fedora policy seed data: %v", err)
-	}
-	s.addArtifact("policies/cis-fedora-l1-workstation", []string{"v1.0.0", "latest"}, []layerDef{
-		{mediaType: gemaraCatalogType, data: cisCatalog},
-		{mediaType: gemaraPolicyType, data: cisPolicy},
-	})
-
-	// policies/ampel-branch-protection — AMPEL branch protection controls
-	ampelCatalog, err := seedData.ReadFile("testdata/ampel-branch-protection-catalog.yaml")
-	if err != nil {
-		log.Fatalf("failed to load AMPEL branch protection catalog seed data: %v", err)
-	}
-	ampelPolicy, err := seedData.ReadFile("testdata/ampel-branch-protection-policy.yaml")
-	if err != nil {
-		log.Fatalf("failed to load AMPEL branch protection policy seed data: %v", err)
-	}
-	s.addArtifact("policies/ampel-branch-protection", []string{"v1.0.0", "latest"}, []layerDef{
-		{mediaType: gemaraCatalogType, data: ampelCatalog},
-		{mediaType: gemaraPolicyType, data: ampelPolicy},
-	})
+	// Auto-load all policy bundles from testdata/policies/
+	s.loadBundlesFromDir()
 
 	// Enrichment mappings
 	s.enrichments["OPA:deny-root-user"] = &enrichmentMapping{
