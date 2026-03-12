@@ -1,6 +1,8 @@
 title: CIS Fedora Linux Benchmark - Server Level 1 Guidance
 metadata:
   id: cis-fedora-server-l1-guidance
+  type: GuidanceCatalog
+  gemara-version: "0.1.0"
   version: "1.0.0"
   description: >-
     Guidance catalog derived from the CIS Fedora Linux Benchmark for Level 1 - Server.

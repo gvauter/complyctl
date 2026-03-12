@@ -1,6 +1,8 @@
 title: Linux VM Compliance Policy - CIS Fedora Server L1 and FINOS CCC
 metadata:
   id: linux-vm-compliance-policy
+  type: Policy
+  gemara-version: "0.1.0"
   version: "1.0.0"
   description: >-
     Organization policy for assessing Linux virtual machines against a unified set of
@@ -32,7 +34,7 @@ imports:
     - reference-id: linux-vm-security-catalog
 adherence:
   evaluation-methods:
-    - type: automated
+    - type: Automated
       description: OpenSCAP automated compliance evaluation
       executor:
         id: openscap
@@ -41,116 +43,148 @@ adherence:
   assessment-plans:
     # --- AUDIT: LVMS-AUDIT-01 ---
     - id: package_audit_installed
-      requirement-id: LVMS-AUDIT-01.AR01
+      requirement-id: package_audit_installed
       frequency: on-demand
       evaluation-methods:
-        - type: automated
+        - type: Automated
           executor:
             id: openscap
+            name: OpenSCAP
+            type: Software
     - id: service_auditd_enabled
-      requirement-id: LVMS-AUDIT-01.AR01
+      requirement-id: service_auditd_enabled
       frequency: on-demand
       evaluation-methods:
-        - type: automated
+        - type: Automated
           executor:
             id: openscap
+            name: OpenSCAP
+            type: Software
     - id: grub2_audit_argument
-      requirement-id: LVMS-AUDIT-01.AR02
+      requirement-id: grub2_audit_argument
       frequency: on-demand
       evaluation-methods:
-        - type: automated
+        - type: Automated
           executor:
             id: openscap
+            name: OpenSCAP
+            type: Software
     - id: grub2_audit_backlog_limit_argument
-      requirement-id: LVMS-AUDIT-01.AR02
+      requirement-id: grub2_audit_backlog_limit_argument
       frequency: on-demand
       evaluation-methods:
-        - type: automated
+        - type: Automated
           executor:
             id: openscap
+            name: OpenSCAP
+            type: Software
     - id: audit_rules_login_events
-      requirement-id: LVMS-AUDIT-01.AR03
+      requirement-id: audit_rules_login_events
       frequency: on-demand
       evaluation-methods:
-        - type: automated
+        - type: Automated
           executor:
             id: openscap
+            name: OpenSCAP
+            type: Software
     - id: audit_rules_login_events_faillock
-      requirement-id: LVMS-AUDIT-01.AR03
+      requirement-id: audit_rules_login_events_faillock
       frequency: on-demand
       evaluation-methods:
-        - type: automated
+        - type: Automated
           executor:
             id: openscap
+            name: OpenSCAP
+            type: Software
     - id: audit_rules_login_events_lastlog
-      requirement-id: LVMS-AUDIT-01.AR03
+      requirement-id: audit_rules_login_events_lastlog
       frequency: on-demand
       evaluation-methods:
-        - type: automated
+        - type: Automated
           executor:
             id: openscap
+            name: OpenSCAP
+            type: Software
     - id: audit_rules_session_events
-      requirement-id: LVMS-AUDIT-01.AR04
+      requirement-id: audit_rules_session_events
       frequency: on-demand
       evaluation-methods:
-        - type: automated
+        - type: Automated
           executor:
             id: openscap
+            name: OpenSCAP
+            type: Software
     # --- ACCESS: LVMS-ACCESS-01 ---
     - id: sshd_disable_root_login
-      requirement-id: LVMS-ACCESS-01.AR01
+      requirement-id: sshd_disable_root_login
       frequency: on-demand
       evaluation-methods:
-        - type: automated
+        - type: Automated
           executor:
             id: openscap
+            name: OpenSCAP
+            type: Software
     - id: sshd_set_idle_timeout
-      requirement-id: LVMS-ACCESS-01.AR02
+      requirement-id: sshd_set_idle_timeout
       frequency: on-demand
       evaluation-methods:
-        - type: automated
+        - type: Automated
           executor:
             id: openscap
+            name: OpenSCAP
+            type: Software
     - id: file_permissions_sshd_config
-      requirement-id: LVMS-ACCESS-01.AR03
+      requirement-id: file_permissions_sshd_config
       frequency: on-demand
       evaluation-methods:
-        - type: automated
+        - type: Automated
           executor:
             id: openscap
+            name: OpenSCAP
+            type: Software
     - id: file_owner_sshd_config
-      requirement-id: LVMS-ACCESS-01.AR03
+      requirement-id: file_owner_sshd_config
       frequency: on-demand
       evaluation-methods:
-        - type: automated
+        - type: Automated
           executor:
             id: openscap
+            name: OpenSCAP
+            type: Software
     - id: file_groupowner_sshd_config
-      requirement-id: LVMS-ACCESS-01.AR03
+      requirement-id: file_groupowner_sshd_config
       frequency: on-demand
       evaluation-methods:
-        - type: automated
+        - type: Automated
           executor:
             id: openscap
+            name: OpenSCAP
+            type: Software
     - id: configure_ssh_crypto_policy
-      requirement-id: LVMS-ACCESS-01.AR04
+      requirement-id: configure_ssh_crypto_policy
       frequency: on-demand
       evaluation-methods:
-        - type: automated
+        - type: Automated
           executor:
             id: openscap
+            name: OpenSCAP
+            type: Software
     # --- CRYPTO: LVMS-CRYPTO-01 ---
     - id: configure_crypto_policy
-      requirement-id: LVMS-CRYPTO-01.AR01
+      requirement-id: configure_crypto_policy
       frequency: on-demand
       evaluation-methods:
-        - type: automated
+        - type: Automated
           executor:
             id: openscap
+            name: OpenSCAP
+            type: Software
     - id: configure_custom_crypto_policy_cis
-      requirement-id: LVMS-CRYPTO-01.AR02
+      requirement-id: configure_custom_crypto_policy_cis
       frequency: on-demand
       evaluation-methods:
-        - type: automated
+        - type: Automated
           executor:
             id: openscap
+            name: OpenSCAP
+            type: Software

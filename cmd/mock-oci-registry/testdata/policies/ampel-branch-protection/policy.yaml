@@ -1,6 +1,8 @@
 title: AMPEL Branch Protection Policy
 metadata:
     id: ampel-branch-protection-policy
+    type: Policy
+    gemara-version: "0.1.0"
     description: Automated evaluation policy for branch protection controls using AMPEL
     author:
         id: complytime
@@ -28,7 +30,7 @@ imports:
         - reference-id: repo-branch-protection
 adherence:
     evaluation-methods:
-        - type: automated
+        - type: Automated
           description: AMPEL automated branch protection evaluation
           executor:
               id: ampel
@@ -39,34 +41,44 @@ adherence:
           requirement-id: BP-1.01
           frequency: on-demand
           evaluation-methods:
-              - type: automated
+              - type: Automated
                 executor:
                     id: ampel
+                    name: AMPEL
+                    type: Software
         - id: BP-2.01
           requirement-id: BP-2.01
           frequency: on-demand
           evaluation-methods:
-              - type: automated
+              - type: Automated
                 executor:
                     id: ampel
+                    name: AMPEL
+                    type: Software
         - id: BP-3.01
           requirement-id: BP-3.01
           frequency: on-demand
           evaluation-methods:
-              - type: automated
+              - type: Automated
                 executor:
                     id: ampel
+                    name: AMPEL
+                    type: Software
         - id: BP-4.01
           requirement-id: BP-4.01
           frequency: on-demand
           evaluation-methods:
-              - type: automated
+              - type: Automated
                 executor:
                     id: ampel
+                    name: AMPEL
+                    type: Software
         - id: BP-5.01
           requirement-id: BP-5.01
           frequency: on-demand
           evaluation-methods:
-              - type: automated
+              - type: Automated
                 executor:
                     id: ampel
+                    name: AMPEL
+                    type: Software

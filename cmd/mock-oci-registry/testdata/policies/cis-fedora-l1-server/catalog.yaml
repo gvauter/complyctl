@@ -1,6 +1,8 @@
 title: Linux VM Security Controls Catalog
 metadata:
   id: linux-vm-security-catalog
+  type: ControlCatalog
+  gemara-version: "0.1.0"
   version: "1.0.0"
   description: >-
     A control catalog for Linux virtual machine security that unifies requirements
@@ -61,49 +63,69 @@ controls:
       and configuration changes.
     family: AUDIT
     assessment-requirements:
-      - id: LVMS-AUDIT-01.AR01
-        text: >-
-          The audit package MUST be installed and the auditd service MUST be
-          enabled and running on the system.
+      - id: package_audit_installed
+        text: The audit package MUST be installed on the system.
         applicability:
           - Fedora Linux servers
           - CIS Level 1 - Server
         recommendation: >-
-          OpenSCAP rules: package_audit_installed, service_auditd_enabled.
-          CIS Fedora sections 5.1.1-5.1.2. Maps to CCC.Core.CN04.
-      - id: LVMS-AUDIT-01.AR02
-        text: >-
-          Auditing MUST be enabled for processes that start prior to the audit
-          daemon, and the audit backlog limit MUST be sufficient to prevent
-          event loss.
+          CIS Fedora section 5.1.1. Maps to CCC.Core.CN04.
+      - id: service_auditd_enabled
+        text: The auditd service MUST be enabled and running.
         applicability:
           - Fedora Linux servers
           - CIS Level 1 - Server
         recommendation: >-
-          OpenSCAP rules: grub2_audit_argument, grub2_audit_backlog_limit_argument.
-          CIS Fedora sections 5.1.3-5.1.4.
-      - id: LVMS-AUDIT-01.AR03
+          CIS Fedora section 5.1.2. Maps to CCC.Core.CN04.
+      - id: grub2_audit_argument
         text: >-
-          The system MUST record all login and logout events, including failed
-          authentication attempts, with client identity and timestamps.
+          Auditing MUST be enabled for processes that start prior to the
+          audit daemon.
+        applicability:
+          - Fedora Linux servers
+          - CIS Level 1 - Server
+        recommendation: >-
+          CIS Fedora section 5.1.3.
+      - id: grub2_audit_backlog_limit_argument
+        text: >-
+          The audit backlog limit MUST be sufficient to prevent event loss.
+        applicability:
+          - Fedora Linux servers
+          - CIS Level 1 - Server
+        recommendation: >-
+          CIS Fedora section 5.1.4.
+      - id: audit_rules_login_events
+        text: The system MUST record login and logout events.
         applicability:
           - Fedora Linux servers
           - CIS Level 1 - Server
           - All deployment environments
         recommendation: >-
-          OpenSCAP rules: audit_rules_login_events, audit_rules_login_events_faillock,
-          audit_rules_login_events_lastlog. CIS Fedora section 5.2.x.
-          Maps to CCC.Core.CN04.AR01.
-      - id: LVMS-AUDIT-01.AR04
+          CIS Fedora section 5.2.x. Maps to CCC.Core.CN04.AR01.
+      - id: audit_rules_login_events_faillock
+        text: The system MUST record failed login attempts via faillock.
+        applicability:
+          - Fedora Linux servers
+          - CIS Level 1 - Server
+          - All deployment environments
+        recommendation: >-
+          CIS Fedora section 5.2.x. Maps to CCC.Core.CN04.AR01.
+      - id: audit_rules_login_events_lastlog
+        text: The system MUST record last login information.
+        applicability:
+          - Fedora Linux servers
+          - CIS Level 1 - Server
+          - All deployment environments
+        recommendation: >-
+          CIS Fedora section 5.2.x. Maps to CCC.Core.CN04.AR01.
+      - id: audit_rules_session_events
         text: >-
-          The system MUST record session initiation information including utmp,
-          wtmp, and btmp events.
+          The system MUST record session initiation information including
+          utmp, wtmp, and btmp events.
         applicability:
           - Fedora Linux servers
           - CIS Level 1 - Server
         recommendation: >-
-          OpenSCAP rules: audit_rules_session_events, audit_rules_session_events_utmp,
-          audit_rules_session_events_wtmp, audit_rules_session_events_btmp.
           CIS Fedora section 5.2.x. Maps to CCC.Core.CN04.AR02.
   - id: LVMS-ACCESS-01
     title: SSH Access Control and Hardening
@@ -113,7 +135,7 @@ controls:
       follows the system-wide cryptographic policy.
     family: ACCESS
     assessment-requirements:
-      - id: LVMS-ACCESS-01.AR01
+      - id: sshd_disable_root_login
         text: >-
           SSH root login MUST be disabled to enforce role-based access and
           prevent direct administrative access from untrusted entities.
@@ -122,9 +144,8 @@ controls:
           - CIS Level 1 - Server
           - All deployment environments
         recommendation: >-
-          OpenSCAP rule: sshd_disable_root_login.
           CIS Fedora section 4.2.x. Maps to CCC.Core.CN05.AR02.
-      - id: LVMS-ACCESS-01.AR02
+      - id: sshd_set_idle_timeout
         text: >-
           SSH sessions MUST be configured with an idle timeout to automatically
           terminate inactive connections and prevent session hijacking.
@@ -132,19 +153,32 @@ controls:
           - Fedora Linux servers
           - CIS Level 1 - Server
         recommendation: >-
-          OpenSCAP rules: sshd_set_idle_timeout, sshd_idle_timeout_value=5_minutes.
           CIS Fedora section 4.2.x. Maps to CCC.Core.CN05.AR06.
-      - id: LVMS-ACCESS-01.AR03
+      - id: file_permissions_sshd_config
         text: >-
-          SSH server configuration files MUST have restricted permissions to
-          prevent unauthorized modification of access controls.
+          SSH server configuration files MUST have restricted permissions.
         applicability:
           - Fedora Linux servers
           - CIS Level 1 - Server
         recommendation: >-
-          OpenSCAP rules: file_permissions_sshd_config, file_owner_sshd_config,
-          file_groupowner_sshd_config. CIS Fedora section 4.2.x.
-      - id: LVMS-ACCESS-01.AR04
+          CIS Fedora section 4.2.x.
+      - id: file_owner_sshd_config
+        text: >-
+          SSH server configuration files MUST be owned by root.
+        applicability:
+          - Fedora Linux servers
+          - CIS Level 1 - Server
+        recommendation: >-
+          CIS Fedora section 4.2.x.
+      - id: file_groupowner_sshd_config
+        text: >-
+          SSH server configuration files MUST be group-owned by root.
+        applicability:
+          - Fedora Linux servers
+          - CIS Level 1 - Server
+        recommendation: >-
+          CIS Fedora section 4.2.x.
+      - id: configure_ssh_crypto_policy
         text: >-
           SSH MUST follow the system-wide cryptographic policy to ensure only
           approved ciphers and algorithms are used for remote access.
@@ -152,7 +186,6 @@ controls:
           - Fedora Linux servers
           - CIS Level 1 - Server
         recommendation: >-
-          OpenSCAP rule: configure_ssh_crypto_policy.
           CIS Fedora section 4.2.x. Maps to CCC.Core.CN05.AR01.
   - id: LVMS-CRYPTO-01
     title: System-wide Cryptographic Policy
@@ -162,7 +195,7 @@ controls:
       standards across all system services for both data at rest and in transit.
     family: CRYPTO
     assessment-requirements:
-      - id: LVMS-CRYPTO-01.AR01
+      - id: configure_crypto_policy
         text: >-
           The system-wide cryptographic policy MUST NOT be set to LEGACY and MUST
           enforce a minimum standard that disables deprecated algorithms.
@@ -171,9 +204,8 @@ controls:
           - CIS Level 1 - Server
           - All deployment environments
         recommendation: >-
-          OpenSCAP rule: configure_crypto_policy.
           CIS Fedora section 1.6.1. Maps to CCC.Core.CN02.
-      - id: LVMS-CRYPTO-01.AR02
+      - id: configure_custom_crypto_policy_cis
         text: >-
           The system MUST use a CIS-compliant custom cryptographic policy that
           disables SHA-1 hash and signature support, configures approved MACs,
@@ -182,5 +214,4 @@ controls:
           - Fedora Linux servers
           - CIS Level 1 - Server
         recommendation: >-
-          OpenSCAP rule: configure_custom_crypto_policy_cis.
           CIS Fedora sections 1.6.1-1.6.4. Maps to CCC.Core.CN11.

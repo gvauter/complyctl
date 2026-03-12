@@ -1,6 +1,8 @@
 title: FINOS Common Cloud Controls - VM Security Guidance
 metadata:
   id: finos-ccc-vm-guidance
+  type: GuidanceCatalog
+  gemara-version: "0.1.0"
   version: "1.0.0"
   description: >-
     Guidance catalog derived from the FINOS Common Cloud Controls (CCC) framework,
