@@ -30,8 +30,9 @@ type Manager struct {
 
 // LoadedPlugin pairs discovery metadata with a live gRPC client.
 type LoadedPlugin struct {
-	Info   PluginInfo
-	Client *Client
+	Info       PluginInfo
+	Client     *Client
+	mockPlugin Plugin // injected during tests; nil in production
 }
 
 func NewManager(pluginDir string, logger hclog.Logger) (*Manager, error) {
@@ -90,6 +91,9 @@ func (m *Manager) LoadPlugins() error {
 }
 
 func (p *LoadedPlugin) GetClient() Plugin {
+	if p.mockPlugin != nil {
+		return p.mockPlugin
+	}
 	return p.Client
 }
 
