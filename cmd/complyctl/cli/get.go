@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"oras.land/oras-go/v2/registry/remote/auth"
 
 	"github.com/complytime/complyctl/internal/cache"
 	"github.com/complytime/complyctl/internal/complytime"
@@ -63,13 +64,15 @@ func (o *getOptions) run(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, o.timeout)
 	defer cancel()
 
-	workspace := complytime.NewWorkspace()
-	if err := workspace.LoadAndValidate(); err != nil {
-		return fmt.Errorf("failed to load workspace config: %w", err)
+	cfg, err := loadWorkspaceConfig()
+	if err != nil {
+		return err
 	}
 
-	cfg := workspace.Config()
+	return o.syncPolicies(ctx, cfg)
+}
 
+func (o *getOptions) syncPolicies(ctx context.Context, cfg *complytime.WorkspaceConfig) error {
 	cacheMgr := cache.NewCache(o.cacheDir)
 
 	state, err := cache.LoadState(o.cacheDir)
@@ -84,47 +87,59 @@ func (o *getOptions) run(ctx context.Context) error {
 		return fmt.Errorf("authentication setup failed: %w", err)
 	}
 
-	logger.Info("Starting policy synchronization", "policy_count", len(cfg.Policies))
+	return syncAllPolicies(ctx, cacheMgr, state, credFunc, cfg.Policies, o.cacheDir)
+}
 
-	total := len(cfg.Policies)
-	synced := 0
-	for i, entry := range cfg.Policies {
-		ref := complytime.ParsePolicyRef(entry.URL)
-		version := ref.Version
+func syncAllPolicies(ctx context.Context, cacheMgr *cache.Cache, state *cache.State, credFunc auth.CredentialFunc, policies []complytime.PolicyEntry, cacheDir string) error {
+	logger.Info("Starting policy synchronization", "policy_count", len(policies))
 
-		client := registry.NewClient(ref.Registry, credFunc)
-		source := cache.NewRegistrySource(client)
-		sync := cache.NewSync(cacheMgr, state, source)
-
-		if version == "" {
-			logger.Info("Resolving latest version", "policy", entry.EffectiveID())
-			_, resolvedVersion, resolveErr := client.DefinitionVersion(ctx, ref.Repository)
-			if resolveErr != nil {
-				logger.Warn("Version resolution failed, falling back to 'latest'",
-					"policy", entry.EffectiveID(), "error", resolveErr)
-				version = "latest"
-			} else {
-				version = resolvedVersion
-				logger.Info("Resolved version", "policy", entry.EffectiveID(), "version", version)
-			}
+	total := len(policies)
+	for i, entry := range policies {
+		if err := syncSinglePolicy(ctx, cacheMgr, state, credFunc, entry, i+1, total, cacheDir); err != nil {
+			return err
 		}
-
-		fmt.Fprintf(os.Stderr, "Syncing policy %d/%d: %s... ", i+1, total, entry.EffectiveID())
-		logger.Info("Syncing policy", "policy", ref.Repository, "version", version)
-		if err := sync.SyncPolicy(ctx, ref.Repository, version); err != nil {
-			fmt.Fprintln(os.Stderr, "failed")
-			suggestMsg := suggestCachedPolicyIDs(o.cacheDir, ref.Repository)
-			logger.Error("Policy sync failed", "policy", ref.Repository, "error", err)
-			return fmt.Errorf("failed to sync policy %s: %w%s", ref.Repository, err, suggestMsg)
-		}
-		fmt.Fprintln(os.Stderr, "done")
-		synced++
-		logger.Info("Policy synced", "policy", entry.EffectiveID())
 	}
 
-	logger.Info("Synchronization completed", "synced", synced, "total", total)
+	logger.Info("Synchronization completed", "synced", total, "total", total)
 	fmt.Fprintln(os.Stderr, "Synchronization completed.")
 	return nil
+}
+
+func syncSinglePolicy(ctx context.Context, cacheMgr *cache.Cache, state *cache.State, credFunc auth.CredentialFunc, entry complytime.PolicyEntry, index, total int, cacheDir string) error {
+	ref := complytime.ParsePolicyRef(entry.URL)
+	version := ref.Version
+
+	client := registry.NewClient(ref.Registry, credFunc)
+	source := cache.NewRegistrySource(client)
+	sync := cache.NewSync(cacheMgr, state, source)
+
+	if version == "" {
+		version = resolveLatestVersion(ctx, client, ref.Repository, entry.EffectiveID())
+	}
+
+	fmt.Fprintf(os.Stderr, "Syncing policy %d/%d: %s... ", index, total, entry.EffectiveID())
+	logger.Info("Syncing policy", "policy", ref.Repository, "version", version)
+	if err := sync.SyncPolicy(ctx, ref.Repository, version); err != nil {
+		fmt.Fprintln(os.Stderr, "failed")
+		suggestMsg := suggestCachedPolicyIDs(cacheDir, ref.Repository)
+		logger.Error("Policy sync failed", "policy", ref.Repository, "error", err)
+		return fmt.Errorf("failed to sync policy %s: %w%s", ref.Repository, err, suggestMsg)
+	}
+	fmt.Fprintln(os.Stderr, "done")
+	logger.Info("Policy synced", "policy", entry.EffectiveID())
+	return nil
+}
+
+func resolveLatestVersion(ctx context.Context, client *registry.Client, repository, policyID string) string {
+	logger.Info("Resolving latest version", "policy", policyID)
+	_, resolvedVersion, resolveErr := client.DefinitionVersion(ctx, repository)
+	if resolveErr != nil {
+		logger.Warn("Version resolution failed, falling back to 'latest'",
+			"policy", policyID, "error", resolveErr)
+		return "latest"
+	}
+	logger.Info("Resolved version", "policy", policyID, "version", resolvedVersion)
+	return resolvedVersion
 }
 
 func suggestCachedPolicyIDs(cacheDir, failedPolicyID string) string {

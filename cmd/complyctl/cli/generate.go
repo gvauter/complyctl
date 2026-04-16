@@ -74,83 +74,66 @@ func (o *generateOptions) run(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, o.timeout)
 	defer cancel()
 
-	ws := complytime.NewWorkspace()
-	if err := ws.LoadAndValidate(); err != nil {
-		return fmt.Errorf("failed to load workspace config: %w", err)
+	cfg, err := loadWorkspaceConfig()
+	if err != nil {
+		return err
 	}
-
-	cfg := ws.Config()
-
-	cacheMgr := cache.NewCache(o.cacheDir)
-	loader := policy.NewLoader(cacheMgr)
-	resolver := policy.NewResolver(loader)
 
 	entry, found := complytime.FindPolicy(cfg.Policies, o.policyID)
 	if !found {
 		return fmt.Errorf("policy %q not found in config — run complyctl list to see available policy IDs", o.policyID)
 	}
-	ref := complytime.ParsePolicyRef(entry.URL)
 
-	version, err := loader.ResolveVersion(ref.Repository, ref.Version)
+	return o.generatePolicy(ctx, cfg, *entry)
+}
+
+func (o *generateOptions) generatePolicy(ctx context.Context, cfg *complytime.WorkspaceConfig, entry complytime.PolicyEntry) error {
+	ref := complytime.ParsePolicyRef(entry.URL)
+	eid := entry.EffectiveID()
+
+	version, graph, err := resolveVersionAndGraph(o.cacheDir, ref)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "Resolved %s version: %s\n", ref.Repository, version)
 
-	graph, err := resolver.ResolvePolicyGraph(ref.Repository, version)
+	mgr, err := loadPlugins(o.pluginDir)
 	if err != nil {
-		return fmt.Errorf("failed to resolve policy graph: %w", err)
-	}
-
-	mgr, err := plugin.NewManager(o.pluginDir, logger)
-	if err != nil {
-		return fmt.Errorf("plugin manager init failed: %w", err)
+		return err
 	}
 	defer mgr.Cleanup()
 
-	if err := mgr.LoadPlugins(); err != nil {
-		return fmt.Errorf("plugin discovery failed: %w", err)
-	}
-
-	plugins := mgr.ListPlugins()
-	if len(plugins) == 0 {
-		return fmt.Errorf("no plugins found in %s (Describe may have failed)", o.pluginDir)
-	}
-
 	configs := policy.ExtractAssessmentConfigs(ref.Repository, graph)
-
 	groups := policy.GroupByEvaluator(configs, graph)
-	globalVars := cfg.Variables
+	policyTargets := filterTargetsForPolicy(cfg.Targets, eid)
 
-	eid := entry.EffectiveID()
-	var policyTargets []complytime.TargetConfig
-	for _, t := range cfg.Targets {
-		for _, p := range t.Policies {
-			if p == eid {
-				policyTargets = append(policyTargets, t)
-			}
-		}
+	evaluatorIDs, planRows, err := invokeGenerate(ctx, mgr, groups, policyTargets, cfg.Variables)
+	if err != nil {
+		return err
 	}
 
+	return saveGenerationAndPrint(o.cacheDir, ref.Repository, eid, evaluatorIDs, planRows)
+}
+
+func invokeGenerate(ctx context.Context, mgr *plugin.Manager, groups map[string]policy.EvaluatorGroup, policyTargets []complytime.TargetConfig, globalVars map[string]string) ([]string, []output.ExecutionPlanRow, error) {
 	spin := terminal.NewSpinner("Generating policy artifacts...")
 	spin.Start()
+	defer spin.Stop()
 
+	if err := generateForAllTargets(ctx, mgr, groups, policyTargets, globalVars); err != nil {
+		return nil, nil, err
+	}
+
+	evaluatorIDs, planRows := buildExecutionPlan(mgr, groups, policyTargets)
+	return evaluatorIDs, planRows, nil
+}
+
+func buildExecutionPlan(mgr *plugin.Manager, groups map[string]policy.EvaluatorGroup, policyTargets []complytime.TargetConfig) ([]string, []output.ExecutionPlanRow) {
 	var evaluatorIDs []string
 	var planRows []output.ExecutionPlanRow
 	for evalID, group := range groups {
-		for _, target := range policyTargets {
-			if err := mgr.RouteGenerate(ctx, evalID, globalVars, target.Variables, group.Configs); err != nil {
-				spin.Stop()
-				return err
-			}
-		}
 		evaluatorIDs = append(evaluatorIDs, evalID)
-
-		status := "healthy"
-		if _, lookupErr := mgr.GetPlugin(evalID); lookupErr != nil {
-			status = "ERROR"
-		}
-
+		status := pluginStatus(mgr, evalID)
 		for _, target := range policyTargets {
 			planRows = append(planRows, output.ExecutionPlanRow{
 				TargetID:         target.ID,
@@ -160,16 +143,24 @@ func (o *generateOptions) run(ctx context.Context) error {
 			})
 		}
 	}
+	return evaluatorIDs, planRows
+}
 
-	spin.Stop()
+func pluginStatus(mgr *plugin.Manager, evalID string) string {
+	if _, err := mgr.GetPlugin(evalID); err != nil {
+		return "ERROR"
+	}
+	return "healthy"
+}
 
-	cacheState, err := cache.LoadState(o.cacheDir)
+func saveGenerationAndPrint(cacheDir, repository, eid string, evaluatorIDs []string, planRows []output.ExecutionPlanRow) error {
+	cacheState, err := cache.LoadState(cacheDir)
 	if err != nil {
 		return fmt.Errorf("failed to load cache state: %w", err)
 	}
-	policyState, _ := cacheState.GetPolicyState(ref.Repository)
-	genState := policy.NewGenerationState(ref.Repository, policyState.Digest, evaluatorIDs)
-	if err := policy.SaveGenerationState(".", ref.Repository, genState); err != nil {
+	policyState, _ := cacheState.GetPolicyState(repository)
+	genState := policy.NewGenerationState(repository, policyState.Digest, evaluatorIDs)
+	if err := policy.SaveGenerationState(".", repository, genState); err != nil {
 		return fmt.Errorf("failed to save generation state: %w", err)
 	}
 

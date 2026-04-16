@@ -65,28 +65,32 @@ func (o *providersOptions) run(ctx context.Context) error {
 		return nil
 	}
 
-	rows := make([][]string, 0, len(plugins))
-	for _, lp := range plugins {
-		status := "healthy"
-		version := ""
-		resp, err := lp.Client.Describe(ctx, &plugin.DescribeRequest{})
-		if err != nil {
-			status = "ERROR"
-		} else if !resp.Healthy {
-			status = "unhealthy"
-		} else {
-			version = resp.Version
-		}
-		relPath, relErr := filepath.Rel(o.pluginDir, lp.Info.ExecutablePath)
-		if relErr != nil {
-			relPath = lp.Info.ExecutablePath
-		}
-		rows = append(rows, []string{
-			lp.Info.EvaluatorID, relPath, status, version,
-		})
-	}
-
+	rows := buildProviderRows(ctx, plugins, o.pluginDir)
 	headers := []string{"PROVIDER ID", "PATH", "STATUS", "VERSION"}
 	terminal.ShowPlainTable(os.Stdout, headers, rows)
 	return nil
+}
+
+func buildProviderRows(ctx context.Context, plugins []*plugin.LoadedPlugin, pluginDir string) [][]string {
+	rows := make([][]string, 0, len(plugins))
+	for _, lp := range plugins {
+		status, version := describePlugin(ctx, lp)
+		relPath, relErr := filepath.Rel(pluginDir, lp.Info.ExecutablePath)
+		if relErr != nil {
+			relPath = lp.Info.ExecutablePath
+		}
+		rows = append(rows, []string{lp.Info.EvaluatorID, relPath, status, version})
+	}
+	return rows
+}
+
+func describePlugin(ctx context.Context, lp *plugin.LoadedPlugin) (string, string) {
+	resp, err := lp.Client.Describe(ctx, &plugin.DescribeRequest{})
+	if err != nil {
+		return "ERROR", ""
+	}
+	if !resp.Healthy {
+		return "unhealthy", ""
+	}
+	return "healthy", resp.Version
 }
