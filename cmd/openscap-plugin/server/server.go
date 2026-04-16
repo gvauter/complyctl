@@ -24,8 +24,8 @@ import (
 )
 
 var (
-	_ plugin.Plugin = (*PluginServer)(nil)
-	ovalRegex       = regexp.MustCompile(`^[^:]*?:[^-]*?-(.*?):.*?$`)
+	_         plugin.Plugin = (*PluginServer)(nil)
+	ovalRegex               = regexp.MustCompile(`^[^:]*?:[^-]*?-(.*?):.*?$`)
 )
 
 const ovalCheckType = "http://oval.mitre.org/XMLSchema/oval-definitions-5"
@@ -45,80 +45,96 @@ func (s *PluginServer) Describe(_ context.Context, _ *plugin.DescribeRequest) (*
 }
 
 func (s *PluginServer) Generate(ctx context.Context, req *plugin.GenerateRequest) (*plugin.GenerateResponse, error) {
-	if len(req.Configuration) == 0 {
+	if err := generateArtifacts(ctx, req); err != nil {
 		return &plugin.GenerateResponse{
 			Success:      false,
-			ErrorMessage: "no assessment configurations provided",
+			ErrorMessage: err.Error(),
 		}, nil
 	}
+	return &plugin.GenerateResponse{Success: true}, nil
+}
 
+func generateArtifacts(ctx context.Context, req *plugin.GenerateRequest) error {
+	if len(req.Configuration) == 0 {
+		return fmt.Errorf("no assessment configurations provided")
+	}
+
+	profile, datastream, err := resolveProfileAndDatastream(req)
+	if err != nil {
+		return err
+	}
+
+	return executeGeneration(ctx, req.Configuration, datastream, profile)
+}
+
+func resolveProfileAndDatastream(req *plugin.GenerateRequest) (string, string, error) {
 	vars := mergeVariables(req.GlobalVariables, req.TargetVariables)
 
 	profile, err := config.SanitizeInput(vars["profile"])
 	if err != nil {
-		return &plugin.GenerateResponse{
-			Success:      false,
-			ErrorMessage: fmt.Sprintf("invalid profile: %v", err),
-		}, nil
+		return "", "", fmt.Errorf("invalid profile: %w", err)
 	}
 
 	datastream, err := config.ResolveDatastream(vars["datastream"])
 	if err != nil {
-		return &plugin.GenerateResponse{
-			Success:      false,
-			ErrorMessage: fmt.Sprintf("datastream error: %v", err),
-		}, nil
+		return "", "", fmt.Errorf("datastream error: %w", err)
 	}
+	return profile, datastream, nil
+}
 
+func executeGeneration(ctx context.Context, configurations []plugin.AssessmentConfiguration, datastream, profile string) error {
 	if err := config.EnsureDirectories(); err != nil {
-		return &plugin.GenerateResponse{
-			Success:      false,
-			ErrorMessage: fmt.Sprintf("directory setup failed: %v", err),
-		}, nil
+		return fmt.Errorf("directory setup failed: %w", err)
 	}
 
-	hclog.Default().Info("Generating a tailoring file")
-	tailoringXML, err := xccdf.PolicyToXML(req.Configuration, datastream, profile)
-	if err != nil {
-		return &plugin.GenerateResponse{
-			Success:      false,
-			ErrorMessage: fmt.Sprintf("tailoring generation failed: %v", err),
-		}, nil
-	}
-
-	dst, err := os.Create(config.PolicyPath)
-	if err != nil {
-		return &plugin.GenerateResponse{
-			Success:      false,
-			ErrorMessage: fmt.Sprintf("failed to create policy file: %v", err),
-		}, nil
-	}
-	defer dst.Close()
-	if _, err := dst.WriteString(tailoringXML); err != nil {
-		return &plugin.GenerateResponse{
-			Success:      false,
-			ErrorMessage: fmt.Sprintf("failed to write policy file: %v", err),
-		}, nil
+	if err := writeTailoringFile(configurations, datastream, profile); err != nil {
+		return err
 	}
 
 	hclog.Default().Info("Generating remediation files")
 	pluginDir := filepath.Join(complytime.WorkspaceDir, config.PluginDir)
 	if err := oscap.OscapGenerateFix(ctx, pluginDir, profile, config.PolicyPath, datastream); err != nil {
-		return &plugin.GenerateResponse{
-			Success:      false,
-			ErrorMessage: fmt.Sprintf("remediation generation failed: %v", err),
-		}, nil
+		return fmt.Errorf("remediation generation failed: %w", err)
+	}
+	return nil
+}
+
+func writeTailoringFile(configurations []plugin.AssessmentConfiguration, datastream, profile string) error {
+	hclog.Default().Info("Generating a tailoring file")
+	tailoringXML, err := xccdf.PolicyToXML(configurations, datastream, profile)
+	if err != nil {
+		return fmt.Errorf("tailoring generation failed: %w", err)
 	}
 
-	return &plugin.GenerateResponse{Success: true}, nil
+	dst, err := os.Create(config.PolicyPath)
+	if err != nil {
+		return fmt.Errorf("failed to create policy file: %w", err)
+	}
+	defer dst.Close()
+	if _, err := dst.WriteString(tailoringXML); err != nil {
+		return fmt.Errorf("failed to write policy file: %w", err)
+	}
+	return nil
 }
 
 func (s *PluginServer) Scan(ctx context.Context, req *plugin.ScanRequest) (*plugin.ScanResponse, error) {
 	if len(req.Targets) == 0 {
 		return nil, fmt.Errorf("no targets provided")
 	}
-	vars := req.Targets[0].Variables
 
+	xmlnode, err := runScanAndParseARF(ctx, req.Targets[0].Variables)
+	if err != nil {
+		return nil, err
+	}
+
+	assessments, err := buildAssessmentsFromARF(xmlnode)
+	if err != nil {
+		return nil, err
+	}
+	return &plugin.ScanResponse{Assessments: assessments}, nil
+}
+
+func runScanAndParseARF(ctx context.Context, vars map[string]string) (*xmlquery.Node, error) {
 	profile, err := config.SanitizeInput(vars["profile"])
 	if err != nil {
 		return nil, fmt.Errorf("invalid profile: %w", err)
@@ -135,7 +151,11 @@ func (s *PluginServer) Scan(ctx context.Context, req *plugin.ScanRequest) (*plug
 		return nil, fmt.Errorf("scan failed: %w", err)
 	}
 
-	file, err := os.Open(filepath.Clean(config.ARFPath))
+	return parseARFFile(config.ARFPath)
+}
+
+func parseARFFile(arfPath string) (*xmlquery.Node, error) {
+	file, err := os.Open(filepath.Clean(arfPath))
 	if err != nil {
 		return nil, fmt.Errorf("failed to open ARF: %w", err)
 	}
@@ -145,7 +165,10 @@ func (s *PluginServer) Scan(ctx context.Context, req *plugin.ScanRequest) (*plug
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse ARF: %w", err)
 	}
+	return xmlnode, nil
+}
 
+func buildAssessmentsFromARF(xmlnode *xmlquery.Node) ([]plugin.AssessmentLog, error) {
 	targetEl := xmlnode.SelectElement("//target")
 	if targetEl == nil {
 		return nil, errors.New("result has no 'target' attribute")
@@ -156,64 +179,86 @@ func (s *PluginServer) Scan(ctx context.Context, req *plugin.ScanRequest) (*plug
 	results := xmlnode.SelectElements("//rule-result")
 
 	var assessments []plugin.AssessmentLog
-
 	for i := range results {
-		result := results[i]
-
-		resultEl := result.SelectElement("result")
-		if resultEl == nil {
-			continue
-		}
-		resultText := resultEl.InnerText()
-
-		// Only report rules that oscap actually evaluated. The tailoring
-		// file already constrains the selected rules; unselected ones
-		// appear as "notselected" and are not assessment-relevant.
-		if resultText == "notselected" || resultText == "notapplicable" {
-			continue
-		}
-
-		ruleIDRef := result.SelectAttr("idref")
-		rule, ok := ruleTable[ruleIDRef]
-		if !ok {
-			continue
-		}
-
-		var ovalRefEl *xmlquery.Node
-		for _, check := range rule.SelectElements("//xccdf-1.2:check") {
-			if check.SelectAttr("system") == ovalCheckType {
-				ovalRefEl = check.SelectElement("xccdf-1.2:check-content-ref")
-				break
-			}
-		}
-		if ovalRefEl == nil {
-			continue
-		}
-		requirementID, err := parseCheck(ovalRefEl)
+		assessment, skip, err := assessmentFromRuleResult(results[i], ruleTable, target)
 		if err != nil {
 			return nil, err
 		}
-
-		mappedResult, err := mapResultStatus(resultText)
-		if err != nil {
-			return nil, err
+		if !skip {
+			assessments = append(assessments, assessment)
 		}
+	}
+	return assessments, nil
+}
 
-		assessments = append(assessments, plugin.AssessmentLog{
-			RequirementID: requirementID,
-			Steps: []plugin.Step{
-				{
-					Name:    ruleIDRef,
-					Result:  mappedResult,
-					Message: ruleResultMessage(rule, result, resultText),
-				},
-			},
-			Message:    fmt.Sprintf("Host %s evaluated", target),
-			Confidence: plugin.ConfidenceLevelHigh,
-		})
+func assessmentFromRuleResult(result *xmlquery.Node, ruleTable map[string]*xmlquery.Node, target string) (plugin.AssessmentLog, bool, error) {
+	ruleIDRef, rule, resultText, skip := resolveRuleResult(result, ruleTable)
+	if skip {
+		return plugin.AssessmentLog{}, true, nil
 	}
 
-	return &plugin.ScanResponse{Assessments: assessments}, nil
+	return buildAssessmentLog(rule, result, ruleIDRef, resultText, target)
+}
+
+func resolveRuleResult(result *xmlquery.Node, ruleTable map[string]*xmlquery.Node) (string, *xmlquery.Node, string, bool) {
+	resultEl := result.SelectElement("result")
+	if resultEl == nil {
+		return "", nil, "", true
+	}
+	resultText := resultEl.InnerText()
+	if isSkippableResult(resultText) {
+		return "", nil, "", true
+	}
+
+	ruleIDRef := result.SelectAttr("idref")
+	rule, ok := ruleTable[ruleIDRef]
+	if !ok {
+		return "", nil, "", true
+	}
+	return ruleIDRef, rule, resultText, false
+}
+
+func isSkippableResult(resultText string) bool {
+	return resultText == "notselected" || resultText == "notapplicable"
+}
+
+func buildAssessmentLog(rule, result *xmlquery.Node, ruleIDRef, resultText, target string) (plugin.AssessmentLog, bool, error) {
+	ovalRefEl := findOVALCheckContentRef(rule)
+	if ovalRefEl == nil {
+		return plugin.AssessmentLog{}, true, nil
+	}
+
+	requirementID, err := parseCheck(ovalRefEl)
+	if err != nil {
+		return plugin.AssessmentLog{}, false, err
+	}
+
+	mappedResult, err := mapResultStatus(resultText)
+	if err != nil {
+		return plugin.AssessmentLog{}, false, err
+	}
+
+	return plugin.AssessmentLog{
+		RequirementID: requirementID,
+		Steps: []plugin.Step{
+			{
+				Name:    ruleIDRef,
+				Result:  mappedResult,
+				Message: ruleResultMessage(rule, result, resultText),
+			},
+		},
+		Message:    fmt.Sprintf("Host %s evaluated", target),
+		Confidence: plugin.ConfidenceLevelHigh,
+	}, false, nil
+}
+
+func findOVALCheckContentRef(rule *xmlquery.Node) *xmlquery.Node {
+	for _, check := range rule.SelectElements("//xccdf-1.2:check") {
+		if check.SelectAttr("system") == ovalCheckType {
+			return check.SelectElement("xccdf-1.2:check-content-ref")
+		}
+	}
+	return nil
 }
 
 // mergeVariables combines global and target variable maps into a single
