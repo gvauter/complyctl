@@ -10,7 +10,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/gemaraproj/go-gemara"
 	"github.com/spf13/cobra"
 
 	"github.com/complytime/complyctl/internal/cache"
@@ -369,20 +368,19 @@ func writeScanReports(format string, eval *output.Evaluator, outDir, reportDir, 
 }
 
 func writeFormatReport(format string, eval *output.Evaluator, logPath, reportDir, repository string) error {
-	gemaraLog := eval.GemaraLog()
 	switch format {
 	case complytime.OutputFormatPretty:
-		return writePrettyReport(gemaraLog, logPath, reportDir, repository)
+		return writePrettyReport(eval, logPath, reportDir, repository)
 	case complytime.OutputFormatSARIF:
-		return writeSARIFReport(gemaraLog, reportDir)
+		return writeSARIFReport(eval, reportDir)
 	case complytime.OutputFormatOSCAL:
-		return writeOSCALReport(gemaraLog, reportDir)
+		return writeOSCALReport(eval, reportDir)
 	}
 	return nil
 }
 
-func writePrettyReport(gemaraLog *gemara.EvaluationLog, logPath, reportDir, repository string) error {
-	md := output.NewMarkdown(repository, gemaraLog)
+func writePrettyReport(eval *output.Evaluator, logPath, reportDir, repository string) error {
+	md := output.NewMarkdown(repository, eval.GemaraLog())
 	md.SetEmbedEvaluationLog(logPath)
 	mdPath, err := md.Write(reportDir)
 	if err != nil {
@@ -392,8 +390,8 @@ func writePrettyReport(gemaraLog *gemara.EvaluationLog, logPath, reportDir, repo
 	return nil
 }
 
-func writeSARIFReport(gemaraLog *gemara.EvaluationLog, reportDir string) error {
-	sarifPath, err := output.ToSARIF(gemaraLog, "file:///scan", reportDir)
+func writeSARIFReport(eval *output.Evaluator, reportDir string) error {
+	sarifPath, err := output.ToSARIF(eval.GemaraLog(), "file:///scan", reportDir)
 	if err != nil {
 		return fmt.Errorf("failed to export SARIF: %w", err)
 	}
@@ -401,8 +399,8 @@ func writeSARIFReport(gemaraLog *gemara.EvaluationLog, reportDir string) error {
 	return nil
 }
 
-func writeOSCALReport(gemaraLog *gemara.EvaluationLog, reportDir string) error {
-	oscalPath, err := output.ToOSCAL(gemaraLog, reportDir)
+func writeOSCALReport(eval *output.Evaluator, reportDir string) error {
+	oscalPath, err := output.ToOSCAL(eval.GemaraLog(), reportDir)
 	if err != nil {
 		return fmt.Errorf("failed to export OSCAL: %w", err)
 	}

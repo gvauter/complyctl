@@ -31,7 +31,7 @@ type Manager struct {
 // LoadedPlugin pairs discovery metadata with a live gRPC client.
 type LoadedPlugin struct {
 	Info   PluginInfo
-	Client *Client
+	Client Plugin
 }
 
 func NewManager(pluginDir string, logger hclog.Logger) (*Manager, error) {

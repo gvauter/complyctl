@@ -16,6 +16,6 @@ func NewMockLoadedPlugin(pluginID, evaluatorID string, mock Plugin) *LoadedPlugi
 			EvaluatorID:    evaluatorID,
 			ExecutablePath: "(test)",
 		},
-		mockPlugin: mock,
+		Client: mock,
 	}
 }

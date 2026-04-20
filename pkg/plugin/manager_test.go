@@ -178,16 +178,6 @@ func TestManager_RouteScan_Broadcast(t *testing.T) {
 	assert.NotEmpty(t, results)
 }
 
-func TestLoadedPlugin_GetClient_Production(t *testing.T) {
-	lp := &plugin.LoadedPlugin{
-		Info:   plugin.PluginInfo{PluginID: "p"},
-		Client: nil,
-	}
-	// Without a mock, GetClient returns the embedded *Client.
-	result := lp.GetClient()
-	assert.IsType(t, (*plugin.Client)(nil), result)
-}
-
 func TestManager_RouteScan_PluginError_ReturnsErrorAssessment(t *testing.T) {
 	mgr, err := plugin.NewManager(t.TempDir(), nil)
 	require.NoError(t, err)
