@@ -853,7 +853,7 @@ func TestCheckCollector_ValidEndpointWithCompleteAuth(t *testing.T) {
 	cfg := &complytime.WorkspaceConfig{
 		Collector: &complytime.CollectorConfig{
 			Endpoint: "collector.example.com:4317",
-			Auth: &complytime.AuthConfig{
+			Auth: &complytime.AuthConfig{ //nolint:gosec // test fixture, not real credentials
 				ClientID:      "my-client",
 				ClientSecret:  "my-secret",
 				TokenEndpoint: "https://idp.example.com/token",
@@ -887,7 +887,7 @@ func TestCheckCollectorAuth_EmptyTokenEndpoint(t *testing.T) {
 }
 
 func TestCheckCollectorAuth_MissingClientID(t *testing.T) {
-	auth := &complytime.AuthConfig{TokenEndpoint: "https://idp.example.com/token"}
+	auth := &complytime.AuthConfig{TokenEndpoint: "https://idp.example.com/token"} //nolint:gosec // test fixture
 	result := checkCollectorAuth(auth)
 	if result.Status != StatusWarn {
 		t.Errorf("expected warn for missing client-id, got %s: %s", result.Status, result.Message)
@@ -895,7 +895,7 @@ func TestCheckCollectorAuth_MissingClientID(t *testing.T) {
 }
 
 func TestCheckCollectorAuth_Complete(t *testing.T) {
-	auth := &complytime.AuthConfig{
+	auth := &complytime.AuthConfig{ //nolint:gosec // test fixture, not real credentials
 		ClientID:      "id",
 		ClientSecret:  "s",
 		TokenEndpoint: "https://idp.example.com/token",

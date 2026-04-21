@@ -124,7 +124,7 @@ func TestAuthRequired_EmptyTokenEndpoint(t *testing.T) {
 }
 
 func TestAuthRequired_WithTokenEndpoint(t *testing.T) {
-	assert.True(t, authRequired(&complytime.AuthConfig{TokenEndpoint: "https://idp.example.com/token"}))
+	assert.True(t, authRequired(&complytime.AuthConfig{TokenEndpoint: "https://idp.example.com/token"})) //nolint:gosec // test fixture
 }
 
 func TestValidateAuthCredentials_MissingClientID(t *testing.T) {
