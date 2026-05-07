@@ -245,7 +245,7 @@ func (s *MyProviderServer) Describe(_ context.Context, _ *provider.DescribeReque
 ```
 
 complyctl detects export support at runtime via a type assertion on the gRPC client; providers
-that return `SupportsExport: false` (or omit it) are silently skipped during `--format otel`.
+that return `SupportsExport: false` (or omit it) are silently skipped when `COMPLYTIME_EXPORT_ENABLED` triggers export.
 
 ---
 

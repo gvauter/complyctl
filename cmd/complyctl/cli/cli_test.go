@@ -94,23 +94,92 @@ func TestScanOptions_Validate_InvalidFormat(t *testing.T) {
 }
 
 func TestScanOptions_Validate_ValidFormats(t *testing.T) {
-	for _, f := range []string{"", "oscal", "pretty", "sarif", "otel"} {
+	for _, f := range []string{"", "oscal", "pretty", "sarif"} {
 		o := &scanOptions{format: f}
 		assert.NoError(t, o.validate(), "format %q should be valid", f)
 	}
 }
 
-func TestScanOptions_Run_OtelWithoutCollector(t *testing.T) {
+func TestScanOptions_Run_ExportEnabledWithoutCollector(t *testing.T) {
 	chdirTemp(t)
+	t.Setenv(complytime.ExportEnabledEnvVar, "true")
 	writeWorkspaceConfig(t, minimalConfig)
 	o := &scanOptions{
-		Common:  &Common{},
-		format:  complytime.OutputFormatOTEL,
-		timeout: 5 * time.Second,
+		Common:   &Common{},
+		policyID: "test-policy",
+		timeout:  5 * time.Second,
+		cacheDir: t.TempDir(),
 	}
+	// The scan will fail before reaching export (no cache/providers),
+	// but we verify the export trigger does not cause an early collector error.
+	// The collector validation now happens in runExport(), not in run().
 	err := o.run(context.Background())
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "collector")
+	// Should fail on cache/provider resolution, not on collector config.
+	assert.NotContains(t, err.Error(), "collector")
+}
+
+// --- maybeExport env var parsing ---
+
+func TestMaybeExport_EnvVarParsing(t *testing.T) {
+	tests := []struct {
+		name        string
+		envValue    string
+		setEnv      bool
+		wantExport  bool
+		wantWarning bool
+	}{
+		{name: "unset", setEnv: false, wantExport: false},
+		{name: "empty", envValue: "", setEnv: true, wantExport: false},
+		{name: "true", envValue: "true", setEnv: true, wantExport: true},
+		{name: "TRUE", envValue: "TRUE", setEnv: true, wantExport: true},
+		{name: "True", envValue: "True", setEnv: true, wantExport: true},
+		{name: "1", envValue: "1", setEnv: true, wantExport: true},
+		{name: "t", envValue: "t", setEnv: true, wantExport: true},
+		{name: "T", envValue: "T", setEnv: true, wantExport: true},
+		{name: "false", envValue: "false", setEnv: true, wantExport: false},
+		{name: "FALSE", envValue: "FALSE", setEnv: true, wantExport: false},
+		{name: "0", envValue: "0", setEnv: true, wantExport: false},
+		{name: "f", envValue: "f", setEnv: true, wantExport: false},
+		{name: "yes", envValue: "yes", setEnv: true, wantExport: false, wantWarning: true},
+		{name: "on", envValue: "on", setEnv: true, wantExport: false, wantWarning: true},
+		{name: "enabled", envValue: "enabled", setEnv: true, wantExport: false, wantWarning: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.setEnv {
+				t.Setenv(complytime.ExportEnabledEnvVar, tt.envValue)
+			}
+
+			// Capture stderr to check for warnings.
+			// NOTE: os.Stderr swap is safe here because subtests run sequentially,
+			// but this pattern should not be used in parallel tests.
+			oldStderr := os.Stderr
+			r, w, _ := os.Pipe()
+			os.Stderr = w
+
+			o := &scanOptions{Common: &Common{}}
+			err := o.maybeExport(context.Background(), &complytime.WorkspaceConfig{}, nil, nil)
+
+			w.Close()
+			var stderrBuf bytes.Buffer
+			_, _ = stderrBuf.ReadFrom(r)
+			os.Stderr = oldStderr
+
+			if tt.wantExport {
+				// When export is triggered with no collector config, we expect an error
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "collector")
+			} else {
+				assert.NoError(t, err)
+			}
+
+			if tt.wantWarning {
+				assert.Contains(t, stderrBuf.String(), "not a recognized boolean value")
+			}
+		})
+	}
 }
 
 // --- export helpers ---
@@ -220,6 +289,13 @@ func TestFormatExportSummary_MixedResults(t *testing.T) {
 	assert.Contains(t, out, "plugin-c")
 	assert.Contains(t, out, "plugin-d")
 	assert.Contains(t, out, "partial failure")
+}
+
+// --- scan help text ---
+
+func TestScanCmd_HelpContainsExportEnvVar(t *testing.T) {
+	cmd := scanCmd(&Common{})
+	assert.Contains(t, cmd.Long, complytime.ExportEnabledEnvVar)
 }
 
 // --- generateOptions tests ---

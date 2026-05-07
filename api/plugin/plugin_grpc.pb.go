@@ -47,7 +47,7 @@ type PluginClient interface {
 	// requirements. Called during plugin discovery and doctor diagnostics.
 	Describe(ctx context.Context, in *DescribeRequest, opts ...grpc.CallOption) (*DescribeResponse, error)
 	// Export ships scan evidence to a Beacon collector via ProofWatch.
-	// Called during `complyctl scan --format otel` after scan completes.
+	// Called during `complyctl scan` when COMPLYTIME_EXPORT_ENABLED is set, after scan completes.
 	// Only plugins that declare supports_export=true in DescribeResponse
 	// will receive this call.
 	Export(ctx context.Context, in *ExportRequest, opts ...grpc.CallOption) (*ExportResponse, error)
@@ -118,7 +118,7 @@ type PluginServer interface {
 	// requirements. Called during plugin discovery and doctor diagnostics.
 	Describe(context.Context, *DescribeRequest) (*DescribeResponse, error)
 	// Export ships scan evidence to a Beacon collector via ProofWatch.
-	// Called during `complyctl scan --format otel` after scan completes.
+	// Called during `complyctl scan` when COMPLYTIME_EXPORT_ENABLED is set, after scan completes.
 	// Only plugins that declare supports_export=true in DescribeResponse
 	// will receive this call.
 	Export(context.Context, *ExportRequest) (*ExportResponse, error)

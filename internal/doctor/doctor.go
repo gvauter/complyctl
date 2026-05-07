@@ -648,7 +648,7 @@ func CheckCollector(cfg *complytime.WorkspaceConfig) []CheckResult {
 		return []CheckResult{{
 			Name:    "collector",
 			Status:  StatusPass,
-			Message: "no collector configured (optional — needed for --format otel)",
+			Message: "no collector configured (optional — needed when " + complytime.ExportEnabledEnvVar + " is set)",
 		}}
 	}
 	if cfg.Collector.Endpoint == "" {
@@ -666,7 +666,39 @@ func CheckCollector(cfg *complytime.WorkspaceConfig) []CheckResult {
 	if cfg.Collector.Auth != nil {
 		results = append(results, checkCollectorAuth(cfg.Collector.Auth))
 	}
+	if result, ok := checkExportEnabled(); ok {
+		results = append(results, result)
+	}
 	return results
+}
+
+// checkExportEnabled checks whether the export env var is set when a collector
+// is configured. Returns a warning result and true if the env var is not
+// enabled. Returns zero value and false when export is enabled (no warning needed).
+func checkExportEnabled() (CheckResult, bool) {
+	enabled, raw, err := complytime.ExportEnabled()
+	if err != nil {
+		return CheckResult{
+			Name:    "collector-export",
+			Status:  StatusWarn,
+			Message: fmt.Sprintf("%s=%q is not a recognized boolean value — export will not trigger", complytime.ExportEnabledEnvVar, raw),
+		}, true
+	}
+	if raw == "" {
+		return CheckResult{
+			Name:    "collector-export",
+			Status:  StatusWarn,
+			Message: fmt.Sprintf("collector configured but %s is not set — export will not trigger", complytime.ExportEnabledEnvVar),
+		}, true
+	}
+	if !enabled {
+		return CheckResult{
+			Name:    "collector-export",
+			Status:  StatusWarn,
+			Message: fmt.Sprintf("collector configured but %s=%s — export will not trigger", complytime.ExportEnabledEnvVar, raw),
+		}, true
+	}
+	return CheckResult{}, false
 }
 
 func checkCollectorAuth(auth *complytime.AuthConfig) CheckResult {

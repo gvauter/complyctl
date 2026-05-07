@@ -38,11 +38,17 @@ func scanCmd(common *Common) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "scan [flags]",
 		Short: "Scan targets and produce compliance reports",
+		Long: `Scan targets and produce compliance reports.
+
+Set COMPLYTIME_EXPORT_ENABLED=true to export evidence to a Beacon collector
+after the scan completes. Requires a collector section in complytime.yaml.
+Export works alongside any --format flag. The variable must be set in the
+same shell session or CI job step that invokes complyctl scan.`,
 		Example: `complyctl scan --policy-id nist-800-53-r5
   complyctl scan --policy-id nist-800-53-r5 --format pretty
   complyctl scan --policy-id nist-800-53-r5 --format oscal
   complyctl scan --policy-id nist-800-53-r5 --format sarif
-  complyctl scan --policy-id nist-800-53-r5 --format otel`,
+  COMPLYTIME_EXPORT_ENABLED=true complyctl scan --policy-id nist-800-53-r5 --format sarif`,
 		SilenceUsage:      true,
 		Args:              cobra.NoArgs,
 		ValidArgsFunction: cobra.NoFileCompletions,
@@ -57,13 +63,13 @@ func scanCmd(common *Common) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&o.policyID, "policy-id", "p", "", "Policy ID to scan (see complyctl list)")
-	cmd.Flags().StringVarP(&o.format, "format", "f", "", "Output format: oscal, pretty, sarif, otel")
+	cmd.Flags().StringVarP(&o.format, "format", "f", "", "Output format: oscal, pretty, sarif")
 	cmd.Flags().DurationVarP(&o.timeout, "timeout", "t", complytime.DefaultCommandTimeout, "Maximum time for the scan operation (e.g. 5m, 10m, 1h)")
 	if err := cmd.MarkFlagRequired("policy-id"); err != nil {
 		logger.Error("Failed to mark policy-id as required", "error", err)
 	}
 	if err := cmd.RegisterFlagCompletionFunc("format", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
-		return []string{complytime.OutputFormatOSCAL, complytime.OutputFormatPretty, complytime.OutputFormatSARIF, complytime.OutputFormatOTEL}, cobra.ShellCompDirectiveNoFileComp
+		return []string{complytime.OutputFormatOSCAL, complytime.OutputFormatPretty, complytime.OutputFormatSARIF}, cobra.ShellCompDirectiveNoFileComp
 	}); err != nil {
 		logger.Error("Failed to register format completion", "error", err)
 	}
@@ -78,10 +84,10 @@ func scanCmd(common *Common) *cobra.Command {
 func (o *scanOptions) validate() error {
 	if o.format != "" {
 		switch o.format {
-		case complytime.OutputFormatOSCAL, complytime.OutputFormatPretty, complytime.OutputFormatSARIF, complytime.OutputFormatOTEL:
+		case complytime.OutputFormatOSCAL, complytime.OutputFormatPretty, complytime.OutputFormatSARIF:
 		default:
-			return fmt.Errorf("invalid format %q: must be one of %s, %s, %s, %s",
-				o.format, complytime.OutputFormatOSCAL, complytime.OutputFormatPretty, complytime.OutputFormatSARIF, complytime.OutputFormatOTEL)
+			return fmt.Errorf("invalid format %q: must be one of %s, %s, %s",
+				o.format, complytime.OutputFormatOSCAL, complytime.OutputFormatPretty, complytime.OutputFormatSARIF)
 		}
 	}
 	return nil
@@ -107,12 +113,6 @@ func (o *scanOptions) run(ctx context.Context) error {
 	cfg, err := loadWorkspaceConfig()
 	if err != nil {
 		return err
-	}
-
-	if o.format == complytime.OutputFormatOTEL {
-		if cfg.Collector == nil || cfg.Collector.Endpoint == "" {
-			return fmt.Errorf("--format otel requires a collector section in complytime.yaml (see docs for configuration)")
-		}
 	}
 
 	if len(cfg.Targets) == 0 {
@@ -175,7 +175,13 @@ func (o *scanOptions) executeScanPhase(ctx context.Context, cfg *complytime.Work
 }
 
 func (o *scanOptions) maybeExport(ctx context.Context, cfg *complytime.WorkspaceConfig, mgr *provider.Manager, groups map[string]policy.EvaluatorGroup) error {
-	if o.format != complytime.OutputFormatOTEL {
+	enabled, raw, err := complytime.ExportEnabled()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: %s=%q is not a recognized boolean value; export disabled (accepted: true, false, 1, 0, t, f)\n",
+			complytime.ExportEnabledEnvVar, raw)
+		return nil
+	}
+	if !enabled {
 		return nil
 	}
 	return o.runExport(ctx, cfg, mgr, groups)
@@ -433,8 +439,11 @@ func writeOSCALReport(eval *output.Evaluator, reportDir string) error {
 }
 
 // runExport orchestrates evidence export to the configured Beacon collector.
-// Called when --format otel is used, after the scan phase completes.
+// Called when COMPLYTIME_EXPORT_ENABLED is set to a truthy value, after the scan phase completes.
 func (o *scanOptions) runExport(ctx context.Context, cfg *complytime.WorkspaceConfig, mgr *provider.Manager, groups map[string]policy.EvaluatorGroup) error {
+	if cfg.Collector == nil || cfg.Collector.Endpoint == "" {
+		return fmt.Errorf("export requires a collector section in complytime.yaml (see docs for configuration)")
+	}
 	collector := cfg.Collector
 
 	authToken, err := resolveCollectorAuth(ctx, collector.Auth)
@@ -589,7 +598,7 @@ type exportResult struct {
 
 // countExportFailures returns the number of export results that represent
 // a failure: a transport error or a response where Success is false or
-// FailedCount is non-zero. Skipped plugins are not counted as failures.
+// FailedCount is non-zero. Skipped providers are not counted as failures.
 func countExportFailures(results []exportResult) int {
 	count := 0
 	for _, r := range results {
