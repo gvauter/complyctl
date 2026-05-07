@@ -25,7 +25,7 @@ service Plugin {
   rpc Describe(DescribeRequest) returns (DescribeResponse);
 
   // Export ships scan evidence to a Beacon collector via ProofWatch.
-  // Called during `complyctl scan --format otel` after scan completes.
+  // Called during `complyctl scan` when COMPLYTIME_EXPORT_ENABLED is set, after scan completes.
   // Only plugins that declare supports_export=true in DescribeResponse
   // will receive this call.
   rpc Export(ExportRequest) returns (ExportResponse);

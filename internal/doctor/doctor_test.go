@@ -834,12 +834,14 @@ func TestCheckCollector_EmptyEndpoint(t *testing.T) {
 }
 
 func TestCheckCollector_ValidEndpointNoAuth(t *testing.T) {
+	t.Setenv(complytime.ExportEnabledEnvVar, "")
 	cfg := &complytime.WorkspaceConfig{
 		Collector: &complytime.CollectorConfig{Endpoint: "collector.example.com:4317"},
 	}
 	results := CheckCollector(cfg)
-	if len(results) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(results))
+	// endpoint pass + export-not-enabled warning
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
 	}
 	if results[0].Status != StatusPass {
 		t.Errorf("expected pass, got %s: %s", results[0].Status, results[0].Message)
@@ -850,6 +852,7 @@ func TestCheckCollector_ValidEndpointNoAuth(t *testing.T) {
 }
 
 func TestCheckCollector_ValidEndpointWithCompleteAuth(t *testing.T) {
+	t.Setenv(complytime.ExportEnabledEnvVar, "")
 	cfg := &complytime.WorkspaceConfig{
 		Collector: &complytime.CollectorConfig{
 			Endpoint: "collector.example.com:4317",
@@ -861,8 +864,9 @@ func TestCheckCollector_ValidEndpointWithCompleteAuth(t *testing.T) {
 		},
 	}
 	results := CheckCollector(cfg)
-	if len(results) != 2 {
-		t.Fatalf("expected 2 results (endpoint + auth), got %d", len(results))
+	// endpoint pass + auth pass + export-not-enabled warning
+	if len(results) != 3 {
+		t.Fatalf("expected 3 results (endpoint + auth + export warning), got %d", len(results))
 	}
 	if results[0].Status != StatusPass {
 		t.Errorf("expected pass for endpoint, got %s: %s", results[0].Status, results[0].Message)
@@ -906,6 +910,58 @@ func TestCheckCollectorAuth_Complete(t *testing.T) {
 	}
 	if !strings.Contains(result.Message, "https://idp.example.com/token") {
 		t.Errorf("expected token-endpoint in message, got %q", result.Message)
+	}
+}
+
+// --- checkExportEnabled Tests ---
+
+func TestCheckExportEnabled_Unset(t *testing.T) {
+	t.Setenv(complytime.ExportEnabledEnvVar, "")
+	result, warn := checkExportEnabled()
+	if !warn {
+		t.Fatal("expected warning when env var is unset")
+	}
+	if result.Status != StatusWarn {
+		t.Errorf("expected warn status, got %s", result.Status)
+	}
+	if !strings.Contains(result.Message, "is not set") {
+		t.Errorf("expected 'is not set' in message, got %q", result.Message)
+	}
+}
+
+func TestCheckExportEnabled_Truthy(t *testing.T) {
+	t.Setenv(complytime.ExportEnabledEnvVar, "true")
+	_, warn := checkExportEnabled()
+	if warn {
+		t.Error("expected no warning when export is enabled")
+	}
+}
+
+func TestCheckExportEnabled_Falsy(t *testing.T) {
+	t.Setenv(complytime.ExportEnabledEnvVar, "false")
+	result, warn := checkExportEnabled()
+	if !warn {
+		t.Fatal("expected warning when env var is falsy")
+	}
+	if result.Status != StatusWarn {
+		t.Errorf("expected warn status, got %s", result.Status)
+	}
+	if !strings.Contains(result.Message, "export will not trigger") {
+		t.Errorf("expected 'export will not trigger' in message, got %q", result.Message)
+	}
+}
+
+func TestCheckExportEnabled_Unrecognized(t *testing.T) {
+	t.Setenv(complytime.ExportEnabledEnvVar, "yes")
+	result, warn := checkExportEnabled()
+	if !warn {
+		t.Fatal("expected warning for unrecognized value")
+	}
+	if result.Status != StatusWarn {
+		t.Errorf("expected warn status, got %s", result.Status)
+	}
+	if !strings.Contains(result.Message, "not a recognized boolean value") {
+		t.Errorf("expected 'not a recognized boolean value' in message, got %q", result.Message)
 	}
 }
 

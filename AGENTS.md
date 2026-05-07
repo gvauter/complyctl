@@ -273,3 +273,5 @@ packages organized by domain responsibility.
 - 005-rpm-packaging-ci: Added Go 1.25 + go-rpm-macros, Packit, Testing Farm (TMT/FMF)
 
 - 004-providers-repository-split: Providers (openscap, ampel) migrated to `complytime-providers`; `pkg/plugin/` renamed to `pkg/provider/`; all "plugin" terminology updated to "provider"
+
+- envvar-otel-export: **BREAKING** — `--format otel` removed; export now triggered via `COMPLYTIME_EXPORT_ENABLED=true` env var. Export works alongside any `--format` flag.
