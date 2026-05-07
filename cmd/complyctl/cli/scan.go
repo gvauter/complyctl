@@ -24,6 +24,7 @@ import (
 
 type scanOptions struct {
 	*Common
+	target      string
 	policyID    string
 	format      string
 	timeout     time.Duration
@@ -36,23 +37,40 @@ func scanCmd(common *Common) *cobra.Command {
 		Common: common,
 	}
 	cmd := &cobra.Command{
-		Use:   "scan [flags]",
+		Use:   "scan [target] [flags]",
 		Short: "Scan targets and produce compliance reports",
 		Long: `Scan targets and produce compliance reports.
+
+Specify a target to scope the scan to a single target from complytime.yaml.
+When the target references exactly one policy, --policy-id is inferred.
+When no target is given, --policy-id is required and all matching targets are scanned.
 
 Set COMPLYTIME_EXPORT_ENABLED=true to export evidence to a Beacon collector
 after the scan completes. Requires a collector section in complytime.yaml.
 Export works alongside any --format flag. The variable must be set in the
 same shell session or CI job step that invokes complyctl scan.`,
-		Example: `complyctl scan --policy-id nist-800-53-r5
-  complyctl scan --policy-id nist-800-53-r5 --format pretty
+		Example: `  # Scan a specific target (policy inferred if target has exactly one)
+  complyctl scan prod
+
+  # Scan a specific target for a specific policy
+  complyctl scan prod --policy-id nist-800-53-r5
+
+  # Scan all targets for a policy (backward compatible)
+  complyctl scan --policy-id nist-800-53-r5
+
+  # Scan with output format
+  complyctl scan prod --policy-id nist-800-53-r5 --format pretty
   complyctl scan --policy-id nist-800-53-r5 --format oscal
-  complyctl scan --policy-id nist-800-53-r5 --format sarif
-  COMPLYTIME_EXPORT_ENABLED=true complyctl scan --policy-id nist-800-53-r5 --format sarif`,
+
+  # Export evidence to Beacon collector alongside format report
+  COMPLYTIME_EXPORT_ENABLED=true complyctl scan prod --format sarif`,
 		SilenceUsage:      true,
-		Args:              cobra.NoArgs,
-		ValidArgsFunction: cobra.NoFileCompletions,
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		Args:              cobra.MaximumNArgs(1),
+		ValidArgsFunction: completeTargetIDs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				o.target = args[0]
+			}
 			if err := o.validate(); err != nil {
 				return err
 			}
@@ -65,9 +83,6 @@ same shell session or CI job step that invokes complyctl scan.`,
 	cmd.Flags().StringVarP(&o.policyID, "policy-id", "p", "", "Policy ID to scan (see complyctl list)")
 	cmd.Flags().StringVarP(&o.format, "format", "f", "", "Output format: oscal, pretty, sarif")
 	cmd.Flags().DurationVarP(&o.timeout, "timeout", "t", complytime.DefaultCommandTimeout, "Maximum time for the scan operation (e.g. 5m, 10m, 1h)")
-	if err := cmd.MarkFlagRequired("policy-id"); err != nil {
-		logger.Error("Failed to mark policy-id as required", "error", err)
-	}
 	if err := cmd.RegisterFlagCompletionFunc("format", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 		return []string{complytime.OutputFormatOSCAL, complytime.OutputFormatPretty, complytime.OutputFormatSARIF}, cobra.ShellCompDirectiveNoFileComp
 	}); err != nil {
@@ -79,6 +94,24 @@ same shell session or CI job step that invokes complyctl scan.`,
 		logger.Error("Failed to register policy-id completion", "error", err)
 	}
 	return cmd
+}
+
+// completeTargetIDs provides shell completion for the scan command's
+// positional target argument by reading target IDs from complytime.yaml.
+func completeTargetIDs(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+	// Only complete the first positional argument.
+	if len(args) > 0 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	cfg, err := loadWorkspaceConfig()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	ids := make([]string, 0, len(cfg.Targets))
+	for _, t := range cfg.Targets {
+		ids = append(ids, t.ID)
+	}
+	return ids, cobra.ShellCompDirectiveNoFileComp
 }
 
 func (o *scanOptions) validate() error {
@@ -119,12 +152,77 @@ func (o *scanOptions) run(ctx context.Context) error {
 		return fmt.Errorf("no targets in complytime.yaml (add targets with policies)")
 	}
 
-	entry, found := complytime.FindPolicy(cfg.Policies, o.policyID)
-	if !found {
-		return fmt.Errorf("policy %q not found in config — run complyctl list to see available policy IDs", o.policyID)
+	// Resolve target (if specified) and determine the effective policy ID.
+	var target *complytime.TargetConfig
+	if o.target != "" {
+		target, err = resolveTarget(cfg, o.target)
+		if err != nil {
+			return err
+		}
 	}
 
-	return o.scanPolicy(ctx, cfg, *entry)
+	policyID, err := resolvePolicy(target, o.policyID)
+	if err != nil {
+		return err
+	}
+
+	entry, found := complytime.FindPolicy(cfg.Policies, policyID)
+	if !found {
+		return fmt.Errorf("policy %q not found in config — run complyctl list to see available policy IDs", policyID)
+	}
+
+	return o.scanPolicy(ctx, cfg, *entry, o.target)
+}
+
+// resolveTarget finds a target by ID in the config's target list.
+// Returns an error listing available target IDs if the target is not found.
+func resolveTarget(cfg *complytime.WorkspaceConfig, targetID string) (*complytime.TargetConfig, error) {
+	for i, t := range cfg.Targets {
+		if t.ID == targetID {
+			return &cfg.Targets[i], nil
+		}
+	}
+	available := make([]string, 0, len(cfg.Targets))
+	for _, t := range cfg.Targets {
+		available = append(available, t.ID)
+	}
+	return nil, fmt.Errorf("target %q not found in complytime.yaml (available targets: %s)",
+		targetID, strings.Join(available, ", "))
+}
+
+// resolvePolicy determines the policy ID to use based on the target and
+// --policy-id flag combination. It handles three cases:
+//   - Both target and policy-id: validates the target references the policy
+//   - Target without policy-id: infers policy if target has exactly one
+//   - No target: requires policy-id (backward compatible)
+func resolvePolicy(target *complytime.TargetConfig, policyID string) (string, error) {
+	if target != nil && policyID != "" {
+		// Both specified — validate the target references the policy.
+		if !slices.Contains(target.Policies, policyID) {
+			return "", fmt.Errorf("target %q does not reference policy %q (available policies: %s)",
+				target.ID, policyID, strings.Join(target.Policies, ", "))
+		}
+		return policyID, nil
+	}
+
+	if target != nil && policyID == "" {
+		// Target without policy-id — infer if single policy.
+		switch len(target.Policies) {
+		case 0:
+			return "", fmt.Errorf("target %q has no policies configured", target.ID)
+		case 1:
+			return target.Policies[0], nil
+		default:
+			return "", fmt.Errorf("target %q references multiple policies — specify one with --policy-id: %s",
+				target.ID, strings.Join(target.Policies, ", "))
+		}
+	}
+
+	// No target — require policy-id.
+	if policyID == "" {
+		return "", fmt.Errorf("specify a target or --policy-id (see complyctl scan --help)")
+	}
+	return policyID, nil
 }
 
 func loadWorkspaceConfig() (*complytime.WorkspaceConfig, error) {
@@ -135,7 +233,7 @@ func loadWorkspaceConfig() (*complytime.WorkspaceConfig, error) {
 	return ws.Config(), nil
 }
 
-func (o *scanOptions) scanPolicy(ctx context.Context, cfg *complytime.WorkspaceConfig, entry complytime.PolicyEntry) error {
+func (o *scanOptions) scanPolicy(ctx context.Context, cfg *complytime.WorkspaceConfig, entry complytime.PolicyEntry, targetID string) error {
 	ref := complytime.ParsePolicyRef(entry.URL)
 	eid := entry.EffectiveID()
 
@@ -157,8 +255,16 @@ func (o *scanOptions) scanPolicy(ctx context.Context, cfg *complytime.WorkspaceC
 	policyTargets := filterTargetsForPolicy(cfg.Targets, eid)
 	evaluatorIDs := evaluatorIDList(groups)
 
+	// Generation runs for ALL targets referencing the policy (per D7:
+	// generation freshness is policy-scoped, not target-scoped). Narrowing
+	// before generation would silently skip targets that were never generated.
 	if err := ensureGenerated(ctx, o.cacheDir, mgr, groups, policyTargets, cfg.Variables, ref.Repository, eid, evaluatorIDs); err != nil {
 		return err
+	}
+
+	// Narrow to the requested target AFTER generation, BEFORE scan execution.
+	if targetID != "" {
+		policyTargets = filterTargetByID(policyTargets, targetID)
 	}
 
 	targetIDs := targetIDList(policyTargets)
@@ -272,6 +378,18 @@ func buildEvaluator(repository string, reqToControl map[string]string, policyTar
 		eval.AddTarget(targetAssessments)
 	}
 	return eval
+}
+
+// filterTargetByID narrows a target slice to the single target matching the
+// given ID. Returns the original slice unchanged if no match is found (the
+// caller has already validated the target exists via resolveTarget).
+func filterTargetByID(targets []complytime.TargetConfig, targetID string) []complytime.TargetConfig {
+	for _, t := range targets {
+		if t.ID == targetID {
+			return []complytime.TargetConfig{t}
+		}
+	}
+	return targets
 }
 
 func filterTargetsForPolicy(targets []complytime.TargetConfig, policyID string) []complytime.TargetConfig {

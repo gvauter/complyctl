@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gemaraproj/go-gemara"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -180,6 +181,289 @@ func TestMaybeExport_EnvVarParsing(t *testing.T) {
 			}
 		})
 	}
+}
+
+// --- target resolution tests ---
+
+// multiPolicyConfig has a target referencing two policies for disambiguation tests.
+const multiPolicyConfig = `policies:
+  - url: registry.example.com/policies/nist@v1.0
+    id: nist
+  - url: registry.example.com/policies/cis@v1.0
+    id: cis
+targets:
+  - id: prod
+    policies:
+      - nist
+      - cis
+    variables:
+      env: production
+  - id: staging
+    policies:
+      - nist
+    variables:
+      env: staging
+`
+
+func TestResolveTarget_Found(t *testing.T) {
+	cfg := &complytime.WorkspaceConfig{
+		Targets: []complytime.TargetConfig{
+			{ID: "prod", Policies: []string{"nist"}},
+			{ID: "staging", Policies: []string{"nist"}},
+		},
+	}
+	target, err := resolveTarget(cfg, "prod")
+	require.NoError(t, err)
+	assert.Equal(t, "prod", target.ID)
+}
+
+func TestResolveTarget_NotFound(t *testing.T) {
+	cfg := &complytime.WorkspaceConfig{
+		Targets: []complytime.TargetConfig{
+			{ID: "prod", Policies: []string{"nist"}},
+			{ID: "staging", Policies: []string{"nist"}},
+		},
+	}
+	_, err := resolveTarget(cfg, "nonexistent")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+	assert.Contains(t, err.Error(), "prod")
+	assert.Contains(t, err.Error(), "staging")
+}
+
+func TestResolvePolicy_BothTargetAndPolicyID_Valid(t *testing.T) {
+	target := &complytime.TargetConfig{
+		ID:       "prod",
+		Policies: []string{"nist", "cis"},
+	}
+	policyID, err := resolvePolicy(target, "nist")
+	require.NoError(t, err)
+	assert.Equal(t, "nist", policyID)
+}
+
+func TestResolvePolicy_BothTargetAndPolicyID_Mismatch(t *testing.T) {
+	target := &complytime.TargetConfig{
+		ID:       "prod",
+		Policies: []string{"nist"},
+	}
+	_, err := resolvePolicy(target, "cis")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not reference policy")
+	assert.Contains(t, err.Error(), "nist")
+}
+
+func TestResolvePolicy_TargetOnly_SinglePolicy(t *testing.T) {
+	target := &complytime.TargetConfig{
+		ID:       "staging",
+		Policies: []string{"nist"},
+	}
+	policyID, err := resolvePolicy(target, "")
+	require.NoError(t, err)
+	assert.Equal(t, "nist", policyID)
+}
+
+func TestResolvePolicy_TargetOnly_MultiplePolicies(t *testing.T) {
+	target := &complytime.TargetConfig{
+		ID:       "prod",
+		Policies: []string{"nist", "cis"},
+	}
+	_, err := resolvePolicy(target, "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "multiple policies")
+	assert.Contains(t, err.Error(), "nist")
+	assert.Contains(t, err.Error(), "cis")
+}
+
+func TestResolvePolicy_TargetOnly_ZeroPolicies(t *testing.T) {
+	target := &complytime.TargetConfig{
+		ID:       "empty",
+		Policies: []string{},
+	}
+	_, err := resolvePolicy(target, "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no policies configured")
+}
+
+func TestResolvePolicy_NeitherTargetNorPolicyID(t *testing.T) {
+	_, err := resolvePolicy(nil, "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "specify a target or --policy-id")
+}
+
+func TestResolvePolicy_PolicyIDOnly(t *testing.T) {
+	policyID, err := resolvePolicy(nil, "nist")
+	require.NoError(t, err)
+	assert.Equal(t, "nist", policyID)
+}
+
+// TestScanOptions_Run_TargetNotFound verifies that specifying a nonexistent
+// target produces an error listing available target IDs.
+func TestScanOptions_Run_TargetNotFound(t *testing.T) {
+	chdirTemp(t)
+	writeWorkspaceConfig(t, minimalConfig)
+	o := &scanOptions{
+		Common:  &Common{},
+		target:  "nonexistent",
+		timeout: 5 * time.Second,
+	}
+	err := o.run(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+	assert.Contains(t, err.Error(), "local")
+}
+
+// TestScanOptions_Run_TargetPolicyMismatch verifies that specifying a target
+// and a policy the target doesn't reference produces a mismatch error.
+func TestScanOptions_Run_TargetPolicyMismatch(t *testing.T) {
+	chdirTemp(t)
+	writeWorkspaceConfig(t, multiPolicyConfig)
+	o := &scanOptions{
+		Common:   &Common{},
+		target:   "staging",
+		policyID: "cis",
+		timeout:  5 * time.Second,
+	}
+	err := o.run(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not reference policy")
+	assert.Contains(t, err.Error(), "nist")
+}
+
+// TestScanOptions_Run_TargetMultiplePoliciesNoPolicyID verifies that a target
+// with multiple policies and no --policy-id produces an error listing policies.
+func TestScanOptions_Run_TargetMultiplePoliciesNoPolicyID(t *testing.T) {
+	chdirTemp(t)
+	writeWorkspaceConfig(t, multiPolicyConfig)
+	o := &scanOptions{
+		Common:  &Common{},
+		target:  "prod",
+		timeout: 5 * time.Second,
+	}
+	err := o.run(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "multiple policies")
+	assert.Contains(t, err.Error(), "nist")
+	assert.Contains(t, err.Error(), "cis")
+}
+
+// TestScanOptions_Run_NoArgsNoPolicyID verifies that running scan with neither
+// a target nor --policy-id produces a clear error.
+func TestScanOptions_Run_NoArgsNoPolicyID(t *testing.T) {
+	chdirTemp(t)
+	writeWorkspaceConfig(t, minimalConfig)
+	o := &scanOptions{
+		Common:  &Common{},
+		timeout: 5 * time.Second,
+	}
+	err := o.run(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "specify a target or --policy-id")
+}
+
+// TestScanOptions_Run_TargetSinglePolicyInferred verifies that a target with
+// exactly one policy infers the policy ID (proceeds past resolution to
+// policy lookup, which fails because the cache is empty — that's expected).
+func TestScanOptions_Run_TargetSinglePolicyInferred(t *testing.T) {
+	chdirTemp(t)
+	writeWorkspaceConfig(t, multiPolicyConfig)
+	o := &scanOptions{
+		Common:   &Common{},
+		target:   "staging",
+		timeout:  5 * time.Second,
+		cacheDir: t.TempDir(),
+	}
+	// The resolution succeeds (infers "nist") but the scan fails later
+	// because the policy is not cached. We verify it gets past resolution.
+	err := o.run(context.Background())
+	require.Error(t, err)
+	// Should NOT contain resolution errors — it should fail at a later stage.
+	assert.NotContains(t, err.Error(), "specify a target or --policy-id")
+	assert.NotContains(t, err.Error(), "multiple policies")
+	assert.NotContains(t, err.Error(), "not found in complytime.yaml")
+}
+
+// TestScanOptions_Run_PolicyIDOnlyBackwardCompat verifies that the existing
+// --policy-id-only flow still works (backward compatibility).
+func TestScanOptions_Run_PolicyIDOnlyBackwardCompat(t *testing.T) {
+	chdirTemp(t)
+	writeWorkspaceConfig(t, minimalConfig)
+	o := &scanOptions{
+		Common:   &Common{},
+		policyID: "test-policy",
+		timeout:  5 * time.Second,
+		cacheDir: t.TempDir(),
+	}
+	// Resolution succeeds, scan fails later at cache lookup — expected.
+	err := o.run(context.Background())
+	require.Error(t, err)
+	// Should NOT contain resolution errors.
+	assert.NotContains(t, err.Error(), "specify a target or --policy-id")
+	assert.NotContains(t, err.Error(), "not found in complytime.yaml")
+}
+
+// TestScanOptions_Run_TargetWithPolicyID verifies that specifying both a valid
+// target and a matching policy-id proceeds past resolution.
+func TestScanOptions_Run_TargetWithPolicyID(t *testing.T) {
+	chdirTemp(t)
+	writeWorkspaceConfig(t, multiPolicyConfig)
+	o := &scanOptions{
+		Common:   &Common{},
+		target:   "prod",
+		policyID: "nist",
+		timeout:  5 * time.Second,
+		cacheDir: t.TempDir(),
+	}
+	err := o.run(context.Background())
+	require.Error(t, err)
+	// Should NOT contain resolution errors.
+	assert.NotContains(t, err.Error(), "specify a target or --policy-id")
+	assert.NotContains(t, err.Error(), "does not reference policy")
+	assert.NotContains(t, err.Error(), "not found in complytime.yaml")
+}
+
+func TestFilterTargetByID_Found(t *testing.T) {
+	targets := []complytime.TargetConfig{
+		{ID: "prod", Policies: []string{"nist"}},
+		{ID: "staging", Policies: []string{"nist"}},
+	}
+	result := filterTargetByID(targets, "prod")
+	require.Len(t, result, 1)
+	assert.Equal(t, "prod", result[0].ID)
+}
+
+func TestFilterTargetByID_NotFound(t *testing.T) {
+	targets := []complytime.TargetConfig{
+		{ID: "prod", Policies: []string{"nist"}},
+		{ID: "staging", Policies: []string{"cis"}},
+	}
+	result := filterTargetByID(targets, "nonexistent")
+	require.Len(t, result, 2, "returns original slice when ID not found")
+	assert.Equal(t, "prod", result[0].ID)
+	assert.Equal(t, "staging", result[1].ID)
+}
+
+func TestCompleteTargetIDs_NoConfig(t *testing.T) {
+	chdirTemp(t)
+	ids, directive := completeTargetIDs(nil, nil, "")
+	assert.Nil(t, ids)
+	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+}
+
+func TestCompleteTargetIDs_WithConfig(t *testing.T) {
+	chdirTemp(t)
+	writeWorkspaceConfig(t, multiPolicyConfig)
+	ids, directive := completeTargetIDs(nil, nil, "")
+	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+	assert.Contains(t, ids, "prod")
+	assert.Contains(t, ids, "staging")
+}
+
+func TestCompleteTargetIDs_AlreadyHasArg(t *testing.T) {
+	chdirTemp(t)
+	writeWorkspaceConfig(t, multiPolicyConfig)
+	ids, directive := completeTargetIDs(nil, []string{"prod"}, "")
+	assert.Nil(t, ids, "should not complete when arg already provided")
+	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
 }
 
 // --- export helpers ---

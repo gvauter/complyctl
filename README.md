@@ -123,26 +123,32 @@ Resolves the policy dependency graph from cache, extracts assessment configurati
 ### `scan`
 
 ```bash
-# Default: EvaluationLog only
+# Scan a specific target (policy inferred if target has exactly one)
+complyctl scan prod
+
+# Scan a specific target for a specific policy
+complyctl scan prod --policy-id nist-800-53-r5
+
+# Scan all targets for a policy
 complyctl scan --policy-id nist-800-53-r5
 
-# OSCAL assessment-results
-complyctl scan --policy-id nist-800-53-r5 --format oscal
-
-# Markdown report
+# With output format
+complyctl scan prod --format oscal
 complyctl scan --policy-id nist-800-53-r5 --format pretty
-
-# SARIF for security tooling
 complyctl scan --policy-id nist-800-53-r5 --format sarif
 
 # Export evidence to Beacon collector (with optional format report)
 COMPLYTIME_EXPORT_ENABLED=true complyctl scan --policy-id nist-800-53-r5 --format sarif
 ```
 
-| Flag | Short | Description |
+| Argument / Flag | Short | Description |
 |:---|:---|:---|
-| `--policy-id` | `-p` | Policy ID to scan (required) |
+| `[target]` | | Optional target ID to scope the scan (from `complytime.yaml`) |
+| `--policy-id` | `-p` | Policy ID to scan (required when no target is given, or target has multiple policies) |
 | `--format` | `-f` | Output format: `oscal`, `pretty`, `sarif` |
+
+When a target is specified and references exactly one policy, `--policy-id` is inferred.
+At least one of `[target]` or `--policy-id` is required.
 
 | Environment Variable | Description |
 |:---|:---|

@@ -266,6 +266,91 @@ func TestE2E_ScanDefaultFormat(t *testing.T) {
 	}
 }
 
+// TestE2E_ScanTargetArg verifies the target positional argument scopes scans
+// to a single target and that policy inference works for single-policy targets.
+func TestE2E_ScanTargetArg(t *testing.T) {
+	binary := locateBinary(t)
+	srv := startMockRegistry(t)
+	defer srv.Close()
+
+	homeDir := t.TempDir()
+	workDir := t.TempDir()
+	installTestPlugin(t, homeDir)
+	env := buildEnv(homeDir)
+
+	// Multi-target config: two targets referencing the same policy.
+	configYAML := fmt.Sprintf(`policies:
+  - url: %s/nist-800-53-r5
+    id: nist-800-53-r5
+targets:
+  - id: prod
+    policies:
+      - nist-800-53-r5
+    variables:
+      env: production
+  - id: staging
+    policies:
+      - nist-800-53-r5
+    variables:
+      env: staging
+`, srv.URL)
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "complytime.yaml"), []byte(configYAML), 0644))
+
+	runComplytime(t, binary, workDir, env, "get")
+
+	// Subtest: scan with target and --policy-id
+	t.Run("target_with_policy_id", func(t *testing.T) {
+		scanDir := filepath.Join(workDir, "scan-target-policy")
+		require.NoError(t, os.MkdirAll(scanDir, 0755))
+		copyWorkspaceConfig(t, workDir, scanDir)
+
+		out := runComplytime(t, binary, scanDir, env,
+			"scan", "prod", "--policy-id", testPolicyID)
+		t.Log(out)
+		assert.Contains(t, out, "requirements:", "scan must complete with requirements summary")
+		// Verify evaluation log was produced
+		evalDir := filepath.Join(scanDir, complytime.WorkspaceDir, complytime.ScanOutputDir)
+		assertOutputFile(t, evalDir, "evaluation-log-", ".yaml")
+	})
+
+	// Subtest: scan with target only (policy inferred from single-policy target)
+	t.Run("target_inferred_policy", func(t *testing.T) {
+		scanDir := filepath.Join(workDir, "scan-target-inferred")
+		require.NoError(t, os.MkdirAll(scanDir, 0755))
+		copyWorkspaceConfig(t, workDir, scanDir)
+
+		out := runComplytime(t, binary, scanDir, env,
+			"scan", "staging")
+		t.Log(out)
+		assert.Contains(t, out, "requirements:", "scan must complete with requirements summary")
+		// Verify evaluation log was produced
+		evalDir := filepath.Join(scanDir, complytime.WorkspaceDir, complytime.ScanOutputDir)
+		assertOutputFile(t, evalDir, "evaluation-log-", ".yaml")
+	})
+
+	// Subtest: scan with nonexistent target produces error
+	t.Run("target_not_found", func(t *testing.T) {
+		cmd := exec.Command(binary, "scan", "nonexistent")
+		cmd.Dir = workDir
+		cmd.Env = env
+		output, err := cmd.CombinedOutput()
+		require.Error(t, err, "nonexistent target must produce error")
+		assert.Contains(t, string(output), "not found")
+		assert.Contains(t, string(output), "prod")
+		assert.Contains(t, string(output), "staging")
+	})
+
+	// Subtest: scan with no args and no --policy-id produces error
+	t.Run("no_args_no_policy", func(t *testing.T) {
+		cmd := exec.Command(binary, "scan")
+		cmd.Dir = workDir
+		cmd.Env = env
+		output, err := cmd.CombinedOutput()
+		require.Error(t, err, "scan with no args must produce error")
+		assert.Contains(t, string(output), "specify a target or --policy-id")
+	})
+}
+
 // TestE2E_InvalidFormat verifies invalid scan format is rejected.
 func TestE2E_InvalidFormat(t *testing.T) {
 	binary := locateBinary(t)
