@@ -106,19 +106,20 @@ if curl -sf http://localhost:8765/v2/ > /dev/null 2>&1; then
     echo ">>> Mock OCI registry already running on port 8765."
 else
     echo ">>> Starting mock OCI registry..."
-    ./bin/mock-oci-registry &
+    nohup ./bin/mock-oci-registry > /tmp/mock-oci-registry.log 2>&1 &
     REGISTRY_PID=$!
+    disown ${REGISTRY_PID}
 
-RETRIES=0
-MAX_RETRIES=30
-until curl -sf http://localhost:8765/v2/ > /dev/null 2>&1; do
-    RETRIES=$((RETRIES + 1))
-    if [[ ${RETRIES} -ge ${MAX_RETRIES} ]]; then
-        echo "FATAL: Mock OCI registry failed to start after ${MAX_RETRIES} retries."
-        exit 1
-    fi
-    sleep 0.5
-done
+    RETRIES=0
+    MAX_RETRIES=30
+    until curl -sf http://localhost:8765/v2/ > /dev/null 2>&1; do
+        RETRIES=$((RETRIES + 1))
+        if [[ ${RETRIES} -ge ${MAX_RETRIES} ]]; then
+            echo "FATAL: Mock OCI registry failed to start after ${MAX_RETRIES} retries."
+            exit 1
+        fi
+        sleep 0.5
+    done
 
     echo "    Mock OCI registry running (PID: ${REGISTRY_PID}, port: 8765)"
 fi
