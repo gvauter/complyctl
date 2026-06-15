@@ -1,8 +1,8 @@
 # Cross-repo integration test workflow.
 # Builds complyctl from the PR branch, checks out complytime-providers@main,
-# builds the Ampel provider binary, installs snappy and ampel, and runs the
-# cross-repo integration test script to validate the full complyctl + Ampel
-# provider pipeline end-to-end.
+# builds provider binaries (ampel + opa), installs snappy, ampel, and conftest,
+# and runs the cross-repo integration test script to validate the full
+# complyctl + provider pipeline end-to-end.
 name: Cross-Repo Integration Test
 
 on:
@@ -57,6 +57,9 @@ jobs:
 
             - name: Install ampel
               uses: carabiner-dev/actions/install/ampel@94f29392187fe5082d1195a7d4cae3a7ddf09d9c # v1.2.1
+
+            - name: Install conftest
+              run: go install github.com/open-policy-agent/conftest@v0.68.2
 
             - name: Run cross-repo integration test
               env:

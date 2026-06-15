@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 #
-# Cross-repo integration test: complyctl + complytime-provider-ampel.
-# Validates the full get → generate → scan pipeline using real binaries
-# and the real GitHub API via snappy and ampel.
+# Cross-repo integration test: complyctl + complytime-providers (ampel + opa).
+# Validates the full get → generate → scan pipeline using real binaries.
+# Ampel tests use the real GitHub API via snappy and ampel.
+# OPA tests use a local K8s Deployment fixture evaluated by conftest.
 #
 # Required environment variables:
-#   PROVIDERS_BIN_DIR   Directory containing complyctl-provider-ampel
+#   PROVIDERS_BIN_DIR   Directory containing complyctl-provider-ampel and complyctl-provider-opa
 #   GITHUB_TOKEN        GitHub token with read access to public repositories
 #
 # Run locally:  make test-cross-repo PROVIDERS_BIN_DIR=/path/to/providers/bin
@@ -22,6 +23,7 @@ TESTDATA_DIR="${REPO_ROOT}/tests/cross-repo/testdata"
 REGISTRY_PORT="${GEMARA_SERVICE_PORT:-8765}"
 REGISTRY_URL="http://localhost:${REGISTRY_PORT}"
 POLICY_ID="test-ampel-bp"
+OPA_POLICY_ID="test-opa-k8s"
 
 WORK_DIR=""
 TEST_HOME=""
@@ -133,6 +135,18 @@ if [[ ! -x "${PROVIDER_BINARY}" ]]; then
     exit 1
 fi
 
+OPA_PROVIDER_BINARY="${PROVIDERS_BIN_DIR}/complyctl-provider-opa"
+if [[ ! -x "${OPA_PROVIDER_BINARY}" ]]; then
+    echo "FATAL: complyctl-provider-opa not found or not executable at ${OPA_PROVIDER_BINARY}"
+    echo "       Build complytime-providers first and set PROVIDERS_BIN_DIR to its bin/ directory."
+    exit 1
+fi
+
+if ! command -v conftest >/dev/null 2>&1; then
+    echo "FATAL: 'conftest' is required but not installed. The OPA provider requires conftest."
+    exit 1
+fi
+
 if [[ ! -x "${BINARY}" ]]; then
     echo "FATAL: complyctl binary not found at ${BINARY}. Run 'make build' first."
     exit 1
@@ -161,9 +175,10 @@ TEST_HOME="$(mktemp -d)"
 WORK_DIR="$(mktemp -d)"
 export HOME="${TEST_HOME}"
 
-# Install provider binary into the isolated home
+# Install provider binaries into the isolated home
 mkdir -p "${TEST_HOME}/.complytime/providers"
 cp "${PROVIDER_BINARY}" "${TEST_HOME}/.complytime/providers/"
+cp "${OPA_PROVIDER_BINARY}" "${TEST_HOME}/.complytime/providers/"
 echo "  HOME=${TEST_HOME}"
 echo "  WORK=${WORK_DIR}"
 
@@ -176,7 +191,11 @@ sed "s|http://localhost:8765|${REGISTRY_URL}|" \
 mkdir -p "${WORK_DIR}/.complytime/ampel/granular-policies"
 cp "${TESTDATA_DIR}/granular-policies/block-force-push.json" \
     "${WORK_DIR}/.complytime/ampel/granular-policies/"
-echo "  Workspace config and granular policy copied."
+
+# Copy OPA test fixture into the workspace.
+# Start with the non-compliant (bad) fixture; the compliant test swaps it.
+cp "${TESTDATA_DIR}/test-deployment-bad.yaml" "${WORK_DIR}/test-deployment.yaml"
+echo "  Workspace config, granular policy, and OPA test fixture copied."
 
 # Start mock registry.
 # 30 retries (15s) — longer than integration_test.sh (15 retries / 7.5s) because
@@ -293,12 +312,108 @@ test_generate_bad_policy() {
     assert_contains "generate bad policy: error message" "${out}" "not found"
 }
 
+# --- test_get_opa ---
+
+test_get_opa() {
+    FOUND_FILE=""
+    echo ""
+    echo "=== test_get_opa ==="
+    # test_get already ran complyctl get which pulls all policies and complypacks.
+    # Verify OPA-specific artifacts were fetched.
+    assert_file_exists "get opa: oci-layout exists" \
+        "${TEST_HOME}/.complytime/policies/policies/test-opa-policy/oci-layout"
+
+    # Complypack cache uses evaluator-id/version/ structure.
+    # Find any content.tar.gz under the opa evaluator directory.
+    local complypack_match
+    complypack_match=$(find "${TEST_HOME}/.complytime/complypacks/opa/" \
+        -name "content.tar.gz" -print -quit 2>/dev/null) || true
+    if [[ -n "${complypack_match}" && -s "${complypack_match}" ]]; then
+        pass "get opa: complypack cached"
+    else
+        fail "get opa: complypack cached: no content.tar.gz under complypacks/opa/"
+    fi
+}
+
+# --- test_generate_opa ---
+
+test_generate_opa() {
+    FOUND_FILE=""
+    echo ""
+    echo "=== test_generate_opa ==="
+    local out rc=0
+    out="$(run_complyctl generate --policy-id "${OPA_POLICY_ID}")" || rc=$?
+    if [[ "${rc}" -ne 0 ]]; then
+        fail "generate opa: unexpected exit code ${rc}"
+        echo "${out}" | sanitize_output >&2
+        return
+    fi
+    echo "${out}" | sanitize_output
+    assert_contains "generate opa: completed" "${out}" "Generation completed."
+}
+
+# --- test_scan_opa (non-compliant fixture — expects failures) ---
+
+test_scan_opa() {
+    FOUND_FILE=""
+    echo ""
+    echo "=== test_scan_opa ==="
+    local out rc=0
+    out="$(run_complyctl scan --policy-id "${OPA_POLICY_ID}")" || rc=$?
+    if [[ "${rc}" -ne 0 ]]; then
+        fail "scan opa: unexpected exit code ${rc}"
+        echo "${out}" | sanitize_output >&2
+        return
+    fi
+    echo "${out}" | sanitize_output
+    assert_contains "scan opa: completed" "${out}" "requirements:"
+    assert_contains "scan opa: check-run-as-nonroot requirement" "${out}" "check-run-as-nonroot"
+    assert_contains "scan opa: check-resource-limits requirement" "${out}" "check-resource-limits"
+    assert_contains "scan opa: failures detected" "${out}" "failed"
+}
+
+# --- test_scan_opa_compliant (compliant fixture — expects all pass) ---
+
+test_scan_opa_compliant() {
+    FOUND_FILE=""
+    echo ""
+    echo "=== test_scan_opa_compliant ==="
+    # Swap in the compliant (good) deployment fixture.
+    cp "${TESTDATA_DIR}/test-deployment-good.yaml" "${WORK_DIR}/test-deployment.yaml"
+
+    local out rc=0
+    # Re-generate to pick up fresh state, then scan.
+    out="$(run_complyctl generate --policy-id "${OPA_POLICY_ID}")" || rc=$?
+    if [[ "${rc}" -ne 0 ]]; then
+        fail "scan opa compliant: generate failed with exit code ${rc}"
+        echo "${out}" | sanitize_output >&2
+        return
+    fi
+    rc=0
+    out="$(run_complyctl scan --policy-id "${OPA_POLICY_ID}")" || rc=$?
+    if [[ "${rc}" -ne 0 ]]; then
+        fail "scan opa compliant: unexpected exit code ${rc}"
+        echo "${out}" | sanitize_output >&2
+        return
+    fi
+    echo "${out}" | sanitize_output
+    assert_contains "scan opa compliant: completed" "${out}" "requirements:"
+    assert_contains "scan opa compliant: all passed" "${out}" "passed"
+
+    # Restore the non-compliant (bad) fixture for any subsequent tests.
+    cp "${TESTDATA_DIR}/test-deployment-bad.yaml" "${WORK_DIR}/test-deployment.yaml"
+}
+
 # --- Run all tests ---
 
 test_get
 test_generate
 test_scan
 test_generate_bad_policy
+test_get_opa
+test_generate_opa
+test_scan_opa
+test_scan_opa_compliant
 
 # --- Summary ---
 

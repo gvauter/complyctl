@@ -2,7 +2,7 @@ policies:
   - url: http://localhost:8765/policies/test-branch-protection
     id: test-ampel-bp
   - url: http://localhost:8765/policies/test-opa-policy
-    id: test-opa-bp
+    id: test-opa-k8s
 
 complypacks:
   - url: http://localhost:8765/complypacks/ampel-bp@v1.0.0
@@ -19,6 +19,6 @@ targets:
       specs: builtin:github/branch-rules.yaml
   - id: test-k8s-deployment
     policies:
-      - test-opa-bp
+      - test-opa-k8s
     variables:
       input_path: test-deployment.yaml

@@ -233,11 +233,11 @@ complyctl get
 # Expected: "Synchronization completed."
 
 # Generate for the OPA provider
-complyctl generate --policy-id test-opa-bp
+complyctl generate --policy-id test-opa-k8s
 # Expected: "Generation completed."
 
 # Run a scan against the test deployment
-complyctl scan --policy-id test-opa-bp
+complyctl scan --policy-id test-opa-k8s
 # Expected: Scan results for container security requirements
 ```
 

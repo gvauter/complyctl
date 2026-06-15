@@ -126,7 +126,7 @@ scripts/             # maintenance scripts (SPDX checks, workflow setup)
 specs/               # Speckit strategic specifications (NNN-*/  format)
 tests/
 ├── behavioral/      # behavioral test scenarios
-├── cross-repo/      # cross-repo integration tests (complyctl + ampel provider)
+├── cross-repo/      # cross-repo integration tests (complyctl + ampel + opa providers)
 ├── e2e/             # E2E tests (build-tag gated: -tags=e2e)
 └── integration_test.sh  # shell-based integration test
 vendor/              # vendored dependencies

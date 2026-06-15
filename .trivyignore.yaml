@@ -1,0 +1,85 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Trivy misconfig suppressions for K8s Deployment test fixtures.
+# These files are intentionally non-compliant or minimally compliant
+# to validate OPA provider policy evaluation. They are not deployed
+# infrastructure.
+
+misconfigurations:
+  - id: KSV-0118
+    paths:
+      - "tests/cross-repo/testdata/test-deployment-bad.yaml"
+      - "tests/cross-repo/testdata/test-deployment-good.yaml"
+    statement: Intentional test fixture for OPA provider validation
+  - id: KSV-0014
+    paths:
+      - "tests/cross-repo/testdata/test-deployment-bad.yaml"
+      - "tests/cross-repo/testdata/test-deployment-good.yaml"
+    statement: Intentional test fixture for OPA provider validation
+  - id: KSV-0001
+    paths:
+      - "tests/cross-repo/testdata/test-deployment-bad.yaml"
+      - "tests/cross-repo/testdata/test-deployment-good.yaml"
+    statement: Intentional test fixture for OPA provider validation
+  - id: KSV-0012
+    paths:
+      - "tests/cross-repo/testdata/test-deployment-bad.yaml"
+    statement: Intentional test fixture for OPA provider validation
+  - id: KSV-0104
+    paths:
+      - "tests/cross-repo/testdata/test-deployment-bad.yaml"
+      - "tests/cross-repo/testdata/test-deployment-good.yaml"
+    statement: Intentional test fixture for OPA provider validation
+  - id: KSV-0003
+    paths:
+      - "tests/cross-repo/testdata/test-deployment-bad.yaml"
+      - "tests/cross-repo/testdata/test-deployment-good.yaml"
+    statement: Intentional test fixture for OPA provider validation
+  - id: KSV-0004
+    paths:
+      - "tests/cross-repo/testdata/test-deployment-bad.yaml"
+      - "tests/cross-repo/testdata/test-deployment-good.yaml"
+    statement: Intentional test fixture for OPA provider validation
+  - id: KSV-0011
+    paths:
+      - "tests/cross-repo/testdata/test-deployment-bad.yaml"
+    statement: Intentional test fixture for OPA provider validation
+  - id: KSV-0015
+    paths:
+      - "tests/cross-repo/testdata/test-deployment-bad.yaml"
+      - "tests/cross-repo/testdata/test-deployment-good.yaml"
+    statement: Intentional test fixture for OPA provider validation
+  - id: KSV-0016
+    paths:
+      - "tests/cross-repo/testdata/test-deployment-bad.yaml"
+      - "tests/cross-repo/testdata/test-deployment-good.yaml"
+    statement: Intentional test fixture for OPA provider validation
+  - id: KSV-0018
+    paths:
+      - "tests/cross-repo/testdata/test-deployment-bad.yaml"
+    statement: Intentional test fixture for OPA provider validation
+  - id: KSV-0020
+    paths:
+      - "tests/cross-repo/testdata/test-deployment-bad.yaml"
+      - "tests/cross-repo/testdata/test-deployment-good.yaml"
+    statement: Intentional test fixture for OPA provider validation
+  - id: KSV-0021
+    paths:
+      - "tests/cross-repo/testdata/test-deployment-bad.yaml"
+      - "tests/cross-repo/testdata/test-deployment-good.yaml"
+    statement: Intentional test fixture for OPA provider validation
+  - id: KSV-0030
+    paths:
+      - "tests/cross-repo/testdata/test-deployment-bad.yaml"
+      - "tests/cross-repo/testdata/test-deployment-good.yaml"
+    statement: Intentional test fixture for OPA provider validation
+  - id: KSV-0106
+    paths:
+      - "tests/cross-repo/testdata/test-deployment-bad.yaml"
+      - "tests/cross-repo/testdata/test-deployment-good.yaml"
+    statement: Intentional test fixture for OPA provider validation
+  - id: KSV-0110
+    paths:
+      - "tests/cross-repo/testdata/test-deployment-bad.yaml"
+      - "tests/cross-repo/testdata/test-deployment-good.yaml"
+    statement: Intentional test fixture for OPA provider validation
